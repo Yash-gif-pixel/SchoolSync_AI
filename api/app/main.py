@@ -13,13 +13,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from .auth import CurrentUser, get_current_user
 from .config import get_settings
 from .db import admin
+from .routers import (
+    attendance,
+    documents,
+    forecast,
+    leave,
+    substitutions,
+    templates,
+    timetable,
+)
 
 settings = get_settings()
 
 app = FastAPI(
-    title="Smart School Ops API",
-    version="0.1.0",
-    description="AI-powered school operations platform — Phase 0",
+    title="SchoolSync AI API",
+    version="0.2.0",
+    description="AI-powered school operations platform — Phase 1: AI Document Reader",
 )
 
 app.add_middleware(
@@ -35,13 +44,22 @@ EXPECTED_TABLES = [
     "departments", "subjects", "rooms", "classes", "time_slots", "profiles",
     "students", "teaching_assignments", "timetable_versions",
     "timetable_entries", "attendance", "leave_requests", "substitutions",
-    "documents", "calendar_events",
+    "documents", "calendar_events", "document_templates", "extracted_records",
 ]
+
+
+app.include_router(templates.router)
+app.include_router(documents.router)
+app.include_router(timetable.router)
+app.include_router(attendance.router)
+app.include_router(leave.router)
+app.include_router(substitutions.router)
+app.include_router(forecast.router)
 
 
 @app.get("/health", tags=["system"])
 def health() -> dict:
-    return {"status": "ok", "service": "smart-school-api", "version": app.version}
+    return {"status": "ok", "service": "schoolsync-ai-api", "version": app.version}
 
 
 @app.get("/health/db", tags=["system"])

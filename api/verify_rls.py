@@ -39,7 +39,22 @@ counts: dict[str, int] = {}
 for r in leaves:
     counts[r["teacher_id"]] = counts.get(r["teacher_id"], 0) + 1
 
-users = {u.id: u.email for u in admin_sb.auth.admin.list_users()}
+def all_auth_users() -> dict[str, str]:
+    """list_users() pages at 50; the school has more staff than that."""
+    out: dict[str, str] = {}
+    page = 1
+    while True:
+        batch = admin_sb.auth.admin.list_users(page=page, per_page=200)
+        if not batch:
+            return out
+        for u in batch:
+            out[u.id] = u.email
+        if len(batch) < 200:
+            return out
+        page += 1
+
+
+users = all_auth_users()
 profiles = {
     p["id"]: p
     for p in admin_sb.table("profiles")

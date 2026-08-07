@@ -1,0 +1,302 @@
+[
+  {
+    "is_admission_form": true,
+    "document_quality": "good",
+    "quality_note": "Minor bleed-through from back page and facing page visible on left.",
+    "fields": [
+      {
+        "field": "full_name",
+        "value": "Yash Singh",
+        "raw_text": "Yash Singh",
+        "present_on_form": true,
+        "confidence": 0.98,
+        "note": null
+      },
+      {
+        "field": "date_of_birth",
+        "value": "2007-04-09",
+        "raw_text": "09:04:2007",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      },
+      {
+        "field": "gender",
+        "value": "M",
+        "raw_text": "Male",
+        "present_on_form": true,
+        "confidence": 0.98,
+        "note": null
+      },
+      {
+        "field": "class_applying_for",
+        "value": "9",
+        "raw_text": "9th",
+        "present_on_form": true,
+        "confidence": 0.98,
+        "note": null
+      },
+      {
+        "field": "guardian_name",
+        "value": "Raju",
+        "raw_text": "Raju",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      },
+      {
+        "field": "guardian_phone",
+        "value": "1234568911",
+        "raw_text": "1234568911",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      },
+      {
+        "field": "address",
+        "value": "2-6-44",
+        "raw_text": "2-6-44",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      },
+      {
+        "field": "previous_school",
+        "value": "Bhavans",
+        "raw_text": "Bhavans",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      },
+      {
+        "field": "admission_date",
+        "value": "2026-06-10",
+        "raw_text": "10/6/2026",
+        "present_on_form": true,
+        "confidence": 0.85,
+        "note": "Struck-out character or scribble preceding the date."
+      }
+    ],
+    "_model": "gemini-3.6-flash",
+    "issues": [
+      {
+        "field": "guardian_phone",
+        "severity": "error",
+        "code": "phone_invalid",
+        "message": "Starts with 1 \u2014 Indian mobile numbers start with 6, 7, 8 or 9.",
+        "suggestion": "Looks like placeholder data rather than a real number."
+      },
+      {
+        "field": "date_of_birth",
+        "severity": "warning",
+        "code": "age_implausible",
+        "message": "Age 19 is unusual for class 9 (typically around 14).",
+        "suggestion": "Check whether the year of birth was misread."
+      },
+      {
+        "field": "admission_date",
+        "severity": "warning",
+        "code": "model_note",
+        "message": "Struck-out character or scribble preceding the date.",
+        "suggestion": null
+      }
+    ],
+    "error_count": 1,
+    "warning_count": 2,
+    "can_auto_commit": false,
+    "needs_review": true
+  },
+  {
+    "is_admission_form": true,
+    "document_quality": "good",
+    "quality_note": null,
+    "fields": [
+      {
+        "field": "full_name",
+        "value": "K. Radha",
+        "raw_text": "K. Radha",
+        "present_on_form": true,
+        "confidence": 0.98,
+        "note": null
+      },
+      {
+        "field": "date_of_birth",
+        "value": "2020-07-05",
+        "raw_text": "5-7-2020",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      },
+      {
+        "field": "gender",
+        "value": "F",
+        "raw_text": "Female",
+        "present_on_form": true,
+        "confidence": 0.98,
+        "note": null
+      },
+      {
+        "field": "class_applying_for",
+        "value": "2",
+        "raw_text": "2nd",
+        "present_on_form": true,
+        "confidence": 0.98,
+        "note": null
+      },
+      {
+        "field": "guardian_name",
+        "value": "Yash Singh Malik",
+        "raw_text": "Yash Singh Malik",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      },
+      {
+        "field": "guardian_phone",
+        "value": null,
+        "raw_text": null,
+        "present_on_form": false,
+        "confidence": 1.0,
+        "note": null
+      },
+      {
+        "field": "address",
+        "value": "18-60, MBS colony Alwal. Secunderabad",
+        "raw_text": "18-60, MBS colony Alwal. Secunderabad",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      },
+      {
+        "field": "previous_school",
+        "value": "ST Anns Girls School.",
+        "raw_text": "ST Anns Girls School.",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      },
+      {
+        "field": "admission_date",
+        "value": "2026-07-06",
+        "raw_text": "6/7/2026",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      }
+    ],
+    "_model": "gemini-3.6-flash",
+    "issues": [
+      {
+        "field": "guardian_phone",
+        "severity": "warning",
+        "code": "missing_optional",
+        "message": "Not present on this form. No way to contact the guardian.",
+        "suggestion": null
+      }
+    ],
+    "error_count": 0,
+    "warning_count": 1,
+    "can_auto_commit": false,
+    "needs_review": true
+  },
+  {
+    "is_admission_form": true,
+    "document_quality": "good",
+    "quality_note": null,
+    "fields": [
+      {
+        "field": "full_name",
+        "value": "manjeet",
+        "raw_text": "manJeet .",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      },
+      {
+        "field": "date_of_birth",
+        "value": "2014-03-10",
+        "raw_text": "10/03/1979 2014",
+        "present_on_form": true,
+        "confidence": 0.8,
+        "note": "1979 corrected to 2014 written above"
+      },
+      {
+        "field": "gender",
+        "value": "M",
+        "raw_text": "male.",
+        "present_on_form": true,
+        "confidence": 0.98,
+        "note": null
+      },
+      {
+        "field": "class_applying_for",
+        "value": "8",
+        "raw_text": "8th",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      },
+      {
+        "field": "guardian_name",
+        "value": "JAGDARSHANLAL",
+        "raw_text": "JAGDAR SHANLAL",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      },
+      {
+        "field": "guardian_phone",
+        "value": "9866421801",
+        "raw_text": "9866421801",
+        "present_on_form": true,
+        "confidence": 0.98,
+        "note": null
+      },
+      {
+        "field": "address",
+        "value": null,
+        "raw_text": null,
+        "present_on_form": false,
+        "confidence": 1.0,
+        "note": null
+      },
+      {
+        "field": "previous_school",
+        "value": "Daffodesen High school",
+        "raw_text": "Daffodesen High school.",
+        "present_on_form": true,
+        "confidence": 0.9,
+        "note": null
+      },
+      {
+        "field": "admission_date",
+        "value": "2026-04-10",
+        "raw_text": "10/04/2026",
+        "present_on_form": true,
+        "confidence": 0.95,
+        "note": null
+      }
+    ],
+    "_model": "gemini-3.6-flash",
+    "issues": [
+      {
+        "field": "address",
+        "severity": "warning",
+        "code": "missing_optional",
+        "message": "Not present on this form. Address will be blank on the student record.",
+        "suggestion": null
+      },
+      {
+        "field": "date_of_birth",
+        "severity": "warning",
+        "code": "low_confidence",
+        "message": "Low confidence (80%) \u2014 1979 corrected to 2014 written above",
+        "suggestion": "Check this against the photo."
+      }
+    ],
+    "error_count": 0,
+    "warning_count": 2,
+    "can_auto_commit": false,
+    "needs_review": true
+  }
+]

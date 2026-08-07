@@ -150,6 +150,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         const Expanded(child: Divider()),
                       ]),
                       const SizedBox(height: 12),
+                      // Stable addresses assigned by seed.py's FIXED_EMAILS, so
+                      // these keep working after a re-seed even though the
+                      // teachers behind them are randomly generated.
                       Row(children: [
                         Expanded(
                           child: OutlinedButton.icon(
@@ -161,12 +164,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             label: const Text('Admin'),
                           ),
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: OutlinedButton.icon(
                             onPressed: auth.loading
                                 ? null
-                                : () => _quickFill('ishaan.reddy@school.test'),
+                                : () => _quickFill('hod@school.test'),
+                            icon: const Icon(Icons.verified_user_outlined, size: 18),
+                            label: const Text('HOD'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: auth.loading
+                                ? null
+                                : () => _quickFill('teacher@school.test'),
                             icon: const Icon(Icons.person_outline, size: 18),
                             label: const Text('Teacher'),
                           ),

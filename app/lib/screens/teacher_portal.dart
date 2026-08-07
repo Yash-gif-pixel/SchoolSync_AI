@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/auth_controller.dart';
+import '../widgets/hod_approvals_card.dart';
+import '../widgets/leave_card.dart';
+import '../widgets/my_timetable_card.dart';
 import '../widgets/phase_roadmap_card.dart';
 import '../widgets/teacher_summary_card.dart';
+import '../widgets/today_periods_card.dart';
 import '../widgets/user_chip.dart';
 
 class TeacherPortal extends ConsumerWidget {
@@ -51,6 +55,16 @@ class TeacherPortal extends ConsumerWidget {
               ),
           ]),
           const SizedBox(height: 20),
+          // Renders itself away unless this teacher is an approver with a
+          // queue, so a plain teacher never sees an empty panel.
+          const HodApprovalsCard(),
+          const SizedBox(height: 16),
+          const TodayPeriodsCard(),
+          const SizedBox(height: 16),
+          const LeaveCard(),
+          const SizedBox(height: 16),
+          const MyTimetableCard(),
+          const SizedBox(height: 16),
           const TeacherSummaryCard(),
           const SizedBox(height: 16),
           const PhaseRoadmapCard(isAdmin: false),

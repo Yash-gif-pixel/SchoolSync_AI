@@ -7,22 +7,15 @@ class PhaseRoadmapCard extends StatelessWidget {
 
   final bool isAdmin;
 
-  static const _admin = [
-    ('Phase 1', 'AI Document Reader — scan admission forms into student records'),
-    ('Phase 2', 'Timetable generator with conflict diagnosis'),
-    ('Phase 3', 'Live Action Board — leave approvals & substitute suggestions'),
-    ('Phase 4', 'Predictive staffing forecast'),
-  ];
+  static const _admin = <(String, String)>[];
 
-  static const _teacher = [
-    ('Phase 2', 'Your weekly timetable'),
-    ('Phase 3', 'Attendance in 5 seconds, and leave requests'),
-  ];
+  static const _teacher = <(String, String)>[];
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final items = isAdmin ? _admin : _teacher;
+    if (items.isEmpty) return const SizedBox.shrink();
 
     return Card(
       elevation: 0,

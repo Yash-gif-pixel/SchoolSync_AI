@@ -4,10 +4,15 @@ import 'package:go_router/go_router.dart';
 
 import 'core/auth_controller.dart';
 import 'models/profile.dart';
+import 'screens/action_board_screen.dart';
 import 'screens/admin_dashboard.dart';
+import 'screens/documents_screen.dart';
+import 'screens/forecast_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/teacher_portal.dart';
+import 'screens/templates_screen.dart';
+import 'screens/timetable_screen.dart';
 
 /// Bridges Riverpod state changes into something GoRouter will listen to.
 class _RouterRefresh extends ChangeNotifier {
@@ -27,6 +32,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/', builder: (_, _) => const SplashScreen()),
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       GoRoute(path: '/admin-dashboard', builder: (_, _) => const AdminDashboard()),
+      GoRoute(path: '/documents', builder: (_, _) => const DocumentsScreen()),
+      GoRoute(path: '/templates', builder: (_, _) => const TemplatesScreen()),
+      GoRoute(path: '/timetable', builder: (_, _) => const TimetableScreen()),
+      GoRoute(path: '/action-board', builder: (_, _) => const ActionBoardScreen()),
+      GoRoute(path: '/forecast', builder: (_, _) => const ForecastScreen()),
       GoRoute(path: '/teacher-portal', builder: (_, _) => const TeacherPortal()),
     ],
     redirect: (context, state) {
@@ -48,7 +58,11 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       if (loc == '/' || loc == '/login') return home;
 
-      final wrongDoor = (loc == '/admin-dashboard' && !auth.profile!.isAdmin) ||
+      const adminOnly = {
+        '/admin-dashboard', '/documents', '/templates', '/timetable',
+        '/action-board', '/forecast',
+      };
+      final wrongDoor = (adminOnly.contains(loc) && !auth.profile!.isAdmin) ||
           (loc == '/teacher-portal' && auth.profile!.isAdmin);
       return wrongDoor ? home : null;
     },

@@ -6,9 +6,12 @@ Uses the service_role key, which bypasses RLS by design.
 
     python seed.py --reset
 
-Scale (see docstring table in build_curriculum for the arithmetic):
-    20 classes (6-10 x A-D) | 900 students | 36 teachers | 7 departments
+Scale:
+    40 classes (1-10 x A-D) | 1800 students | 55 teachers | 7 departments
     36 teaching slots/week  | 90 days of leave history | 10 days attendance
+
+Primary (1-5) and secondary (6-10) run different curricula — see the comment
+above PRIMARY_CURRICULUM for why that is load-bearing, not cosmetic.
 """
 
 from __future__ import annotations
@@ -88,11 +91,15 @@ def reset() -> None:
         sb.table(t).delete().gte("id", "00000000-0000-0000-0000-000000000000").execute()
         log(f"cleared {t}")
 
-    # auth users are not in a normal table; remove the demo ones explicitly
-    page = sb.auth.admin.list_users()
+    # Auth users are not in a normal table; remove the demo ones explicitly.
+    # list_users() pages at 50, so loop until a short page comes back.
     removed = 0
-    for u in page:
-        if u.email and u.email.endswith("@school.test"):
+    while True:
+        batch = sb.auth.admin.list_users(page=1, per_page=200)
+        demo = [u for u in batch if u.email and u.email.endswith("@school.test")]
+        if not demo:
+            break
+        for u in demo:
             sb.auth.admin.delete_user(u.id)
             removed += 1
     log(f"deleted {removed} demo auth users")
@@ -133,8 +140,9 @@ DAY_STRUCTURE = [
     (8, "12:45", "13:30", False, "Period 6"),
 ]
 
-GRADES = [6, 7, 8, 9, 10]
+GRADES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 SECTIONS = ["A", "B", "C", "D"]
+PRIMARY_GRADES = {1, 2, 3, 4, 5}
 
 
 def seed_reference() -> dict:
@@ -213,15 +221,34 @@ def seed_reference() -> dict:
 
 
 # ---------------------------------------------------------------- curriculum
-# Periods per week per class. Must total 36 (the teaching-slot count), and
-# lab demand must stay inside lab capacity:
+# Periods per week per class. Each list must total 36, the teaching-slot count.
 #
-#   science practical : 20 classes x 2 = 40  <= 2 labs x 36 slots = 72   OK
-#   computer lab      : 20 classes x 1 = 20  <= 1 lab  x 36 slots = 36   OK
+# Primary and secondary differ, and not only for realism: labs are the one
+# scarce room, and lab capacity is 2 science labs x 36 slots = 72 plus
+# 1 computer lab x 36 = 36. If all 40 classes needed practicals that would be
+# 80 and 40 respectively -- infeasible before the solver even starts. Indian
+# primaries don't run science practicals or computer labs anyway, so restricting
+# lab work to grades 6-10 is both accurate and what keeps Phase 2 solvable:
 #
-#   MATH 7 | SCI 5+2lab | ENG 6 | HIN 5 | SST 5 | CS 2+1lab | PE 3  = 36
-CURRICULUM = [
+#   science practical : 20 classes x 2 = 40  <= 72   OK
+#   computer lab      : 20 classes x 1 = 20  <= 36   OK
+
+# Grades 1-5: no labs, more language and play time.
+#   MATH 7 | SCI 5 | ENG 7 | HIN 6 | SST 4 | CS 2 | PE 5  = 36
+PRIMARY_CURRICULUM = [
     # (subject_code, periods_per_week, requires_lab)
+    ("MATH", 7, False),
+    ("SCI",  5, False),
+    ("ENG",  7, False),
+    ("HIN",  6, False),
+    ("SST",  4, False),
+    ("CS",   2, False),
+    ("PE",   5, False),
+]
+
+# Grades 6-10: science and computing split into theory + practical.
+#   MATH 7 | SCI 5+2lab | ENG 6 | HIN 5 | SST 5 | CS 2+1lab | PE 3  = 36
+SECONDARY_CURRICULUM = [
     ("MATH", 7, False),
     ("SCI",  5, False),
     ("SCI",  2, True),   # practical
@@ -233,17 +260,33 @@ CURRICULUM = [
     ("PE",   3, False),
 ]
 
-# Teachers per department, sized so each carries ~20 of 36 possible periods.
-#   MATH 20x7=140 -> 7 | SCI 20x7=140 -> 7 | ENG 120 -> 6 | HIN 100 -> 5
-#   SST 100 -> 5 | CS 60 -> 3 | PE 60 -> 3          = 36 teachers, 720 periods
+
+def curriculum_for(grade: int) -> list[tuple[str, int, bool]]:
+    return PRIMARY_CURRICULUM if grade in PRIMARY_GRADES else SECONDARY_CURRICULUM
+
+
+# Teachers per department, sized so each carries ~26 of 36 possible periods.
+#
+# That figure is load-bearing, not cosmetic. An earlier version staffed the
+# school at 20/36 — 44% free time — which is far more generous than a real
+# Indian secondary school (26-32 is typical) and quietly broke two features:
+# substitution became trivial because someone was always free, and the Phase 4
+# forecast correctly reported zero risk because there genuinely was none.
+# Realistic loads leave ~10 free periods a week per teacher, which is the
+# scarcity the cover and forecasting engines exist to manage.
+#
+# Weekly periods per department across all 40 classes:
+#   MATH 140+140=280 -> 11 | SCI 100+140=240 ->  9 | ENG 140+120=260 -> 10
+#   HIN 120+100=220 ->  8  | SST  80+100=180 ->  7 | CS   40+60=100 ->  4
+#   PE  100+60=160  ->  6                    = 55 teachers, 1440 periods/week
 TEACHERS_PER_DEPT = {
-    "Maths": 7,
-    "Science": 7,
-    "English": 6,
-    "Hindi": 5,
-    "Social Studies": 5,
-    "Computer Science": 3,
-    "Physical Education": 3,
+    "Maths": 11,
+    "Science": 9,
+    "English": 10,
+    "Hindi": 8,
+    "Social Studies": 7,
+    "Computer Science": 4,
+    "Physical Education": 6,
 }
 
 FIRST_NAMES = [
@@ -258,6 +301,15 @@ LAST_NAMES = [
     "Chauhan", "Joshi", "Mehta", "Kulkarni", "Das", "Bose", "Rao", "Pillai",
     "Malhotra", "Kapoor", "Banerjee", "Chatterjee", "Desai", "Shetty",
 ]
+
+
+# Stable logins for the demo, so the app's quick-fill buttons keep working
+# across re-seeds even though teacher names are randomised.
+#   (department, index within department) -> email
+FIXED_EMAILS = {
+    ("Science", 0): "hod@school.test",      # index 0 is always the HOD
+    ("Science", 1): "teacher@school.test",  # a plain teacher, no approval rights
+}
 
 
 def seed_staff(ref: dict) -> dict:
@@ -312,7 +364,10 @@ def seed_staff(ref: dict) -> dict:
             first = random.choice(FIRST_NAMES)
             last = random.choice(LAST_NAMES)
             name = f"{first} {last}"
-            email = make_email(first, last)
+            fixed = FIXED_EMAILS.get((dept, i))
+            if fixed:
+                used_emails.add(fixed)
+            email = fixed or make_email(first, last)
             uid = create_auth_user(email, name, "teacher")
             is_hod = i == 0
             row = {
@@ -371,7 +426,7 @@ def seed_assignments(ref: dict, staff: dict) -> list[dict]:
     rows = []
 
     for cls in ref["classes"]:
-        for code, periods, needs_lab in CURRICULUM:
+        for code, periods, needs_lab in curriculum_for(cls["grade"]):
             dept = dept_of_subject[code]
             pool = staff["by_dept"][dept]
             # least-loaded teacher in the owning department
@@ -393,8 +448,19 @@ def seed_assignments(ref: dict, staff: dict) -> list[dict]:
     loads = sorted(load.values())
     log(f"{len(assignments)} assignments, {total} teacher-periods/week")
     log(f"load per teacher: min {loads[0]}, median {loads[len(loads)//2]}, max {loads[-1]} (of 36)")
-    lab_periods = sum(p for _, p, lab in CURRICULUM if lab) * len(ref["classes"])
-    log(f"lab demand {lab_periods}/week vs capacity 108 (2 science + 1 computer lab x 36)")
+
+    sci_lab = sum(
+        p for c in ref["classes"]
+        for code, p, lab in curriculum_for(c["grade"]) if lab and code == "SCI"
+    )
+    com_lab = sum(
+        p for c in ref["classes"]
+        for code, p, lab in curriculum_for(c["grade"]) if lab and code == "CS"
+    )
+    log(f"science lab  demand {sci_lab}/week vs capacity 72 (2 labs x 36 slots)")
+    log(f"computer lab demand {com_lab}/week vs capacity 36 (1 lab x 36 slots)")
+    if sci_lab > 72 or com_lab > 36:
+        log("WARNING: lab demand exceeds capacity — Phase 2 will be infeasible")
     return assignments
 
 
@@ -545,10 +611,11 @@ def main() -> int:
     seed_attendance(ref, students, staff)
 
     step("Done")
-    log(f"admin login : admin@school.test / {DEMO_PASSWORD}")
-    sample = staff["by_dept"]["Science"][0]
-    log(f"HOD login   : (Science HOD) {sample['full_name']} — see profiles table for email")
-    log(f"all demo passwords: {DEMO_PASSWORD}")
+    sci = staff["by_dept"]["Science"]
+    log(f"admin   : admin@school.test    ({[p for p in staff['all'] if p['role'] == 'admin'][0]['full_name']})")
+    log(f"HOD     : hod@school.test      ({sci[0]['full_name']}, Science — can approve leave)")
+    log(f"teacher : teacher@school.test  ({sci[1]['full_name']}, Science)")
+    log(f"password for all: {DEMO_PASSWORD}")
     return 0
 
 
