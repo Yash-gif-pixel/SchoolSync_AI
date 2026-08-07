@@ -1,0 +1,23 @@
+# secrets
+.env
+*.env
+!.env.example
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# flutter / dart
+app/build/
+app/.dart_tool/
+app/.flutter-plugins*
+app/ios/Pods/
+*.iml
+
+# samples may contain real student data
+samples/
+
+# os
+Thumbs.db
+desktop.ini
