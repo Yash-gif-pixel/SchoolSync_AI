@@ -243,6 +243,24 @@ already marked present** and the teacher taps only the empty desks; tapping
 cycles present → absent → late. One bulk write covers the class, and reopening
 a period shows what was recorded rather than resetting to the default.
 
+### No overlapping leave
+
+A teacher cannot be on two overlapping leaves at once — otherwise the
+substitution matcher arranges cover for the same periods twice. Leave arrives
+by two doors, the teacher portal form and a scanned medical note, so the check
+lives in `services/leave_rules.py` and both call it. It also runs again at
+approval time, and a Postgres exclusion constraint
+(`db/005_no_overlapping_leave.sql`) makes the rule true regardless of which
+code path is used:
+
+```sql
+exclude using gist (teacher_id with =, daterange(from_date, to_date, '[]') with &&)
+  where (status in ('pending_incharge', 'approved'))
+```
+
+Rejected and cancelled requests are excluded, so someone refused for a date can
+always re-apply for it.
+
 ### Approval is decentralised
 
 A teacher files leave; their **head of department** reviews it, not the
@@ -274,7 +292,8 @@ it.
 
 ```powershell
 cd api
-..\.venv\Scripts\python.exe test_e2e_phase3.py   # 49 checks over the whole pipeline
+..\.venv\Scripts\python.exe test_e2e_phase3.py       # 49 checks, whole pipeline
+..\.venv\Scripts\python.exe test_e2e_leave_clash.py  # 16 checks, overlap rules
 ```
 
 Those checks include the ones that matter for suggestion quality: that the

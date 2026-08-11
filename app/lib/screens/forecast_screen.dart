@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/forecast_repository.dart';
 import '../models/forecast.dart';
+import '../widgets/shell/app_shell.dart';
+import '../widgets/ui/primitives.dart' show PageBody;
 
 /// Predictive staffing: where the school is likely to run short, and why.
 ///
@@ -18,19 +20,17 @@ class ForecastScreen extends ConsumerWidget {
     final forecast = ref.watch(staffingForecastProvider);
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Staffing forecast'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(staffingForecastProvider),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: forecast.when(
+    return AppShell(
+      title: 'Staffing forecast',
+      subtitle: 'Where the school is likely to run short, and why',
+      actions: [
+        IconButton(
+          tooltip: 'Refresh',
+          icon: const Icon(Icons.refresh),
+          onPressed: () => ref.invalidate(staffingForecastProvider),
+        ),
+      ],
+      child: forecast.when(
         loading: () => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
         error: (e, _) => Center(
           child: Padding(
@@ -39,8 +39,8 @@ class ForecastScreen extends ConsumerWidget {
                 style: TextStyle(color: theme.colorScheme.error)),
           ),
         ),
-        data: (f) => ListView(
-          padding: const EdgeInsets.all(20),
+        data: (f) => PageBody(
+          maxWidth: 1000,
           children: [
             if (!f.hasTimetable && f.note != null) ...[
               _Banner(

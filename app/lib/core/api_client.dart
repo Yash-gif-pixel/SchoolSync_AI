@@ -38,6 +38,26 @@ class ApiClient {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  /// For endpoints that return a JSON array rather than an object.
+  Future<List<dynamic>> getList(String path) async {
+    final res = await http
+        .get(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: _headers)
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode >= 400) {
+      throw ApiException(res.statusCode, res.body);
+    }
+    return jsonDecode(res.body) as List<dynamic>;
+  }
+
+  Future<void> delete(String path) async {
+    final res = await http
+        .delete(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: _headers)
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode >= 400) {
+      throw ApiException(res.statusCode, res.body);
+    }
+  }
+
   Future<Map<String, dynamic>> post(String path, [Map<String, dynamic>? body]) async {
     final res = await http
         .post(
@@ -57,12 +77,12 @@ final apiClientProvider = Provider<ApiClient>((_) => const ApiClient());
 
 /// Phase 0 proof-of-life: Flutter -> FastAPI -> Supabase.
 final backendHealthProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  ref.watch(currentUserIdProvider);
   return ref.read(apiClientProvider).get('/health/db');
 });
 
 /// Round-trips the caller's JWT through the API to confirm it verifies.
-/// Watches auth so it refetches whenever the signed-in user changes.
 final apiMeProvider = FutureProvider<Map<String, dynamic>>((ref) async {
-  ref.watch(authControllerProvider.select((s) => s.session?.accessToken));
+  ref.watch(currentUserIdProvider);
   return ref.read(apiClientProvider).get('/me');
 });

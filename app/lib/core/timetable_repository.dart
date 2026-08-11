@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/timetable.dart';
+import 'auth_controller.dart';
 import 'config.dart';
 
 class TimetableRepository {
@@ -124,14 +125,18 @@ final timetableRepositoryProvider =
     Provider<TimetableRepository>((_) => const TimetableRepository());
 
 final activeTimetableProvider = FutureProvider<Timetable>((ref) async {
+  ref.watch(currentUserIdProvider);
   return ref.read(timetableRepositoryProvider).active();
 });
 
+/// Strictly user-scoped — the whole point is "my" week.
 final myTimetableProvider = FutureProvider<Timetable>((ref) async {
+  ref.watch(currentUserIdProvider);
   return ref.read(timetableRepositoryProvider).mine();
 });
 
 final timetableVersionsProvider =
     FutureProvider<List<TimetableVersion>>((ref) async {
+  ref.watch(currentUserIdProvider);
   return ref.read(timetableRepositoryProvider).versions();
 });

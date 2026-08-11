@@ -15,9 +15,12 @@ from .config import get_settings
 from .db import admin
 from .routers import (
     attendance,
+    directory,
     documents,
+    events,
     forecast,
     leave,
+    seating,
     substitutions,
     templates,
     timetable,
@@ -55,6 +58,9 @@ app.include_router(attendance.router)
 app.include_router(leave.router)
 app.include_router(substitutions.router)
 app.include_router(forecast.router)
+app.include_router(events.router)
+app.include_router(directory.router)
+app.include_router(seating.router)
 
 
 @app.get("/health", tags=["system"])

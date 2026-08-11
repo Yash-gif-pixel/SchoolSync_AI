@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/operations_repository.dart';
 import '../models/operations.dart';
+import '../theme/app_theme.dart';
+import 'ui/primitives.dart';
 
 /// The head of department's review queue.
 ///
@@ -37,13 +39,12 @@ class _HodApprovalsCardState extends ConsumerState<HodApprovalsCard> {
                 'cover, suggestions sent to the Action Board'
                 '${uncovered > 0 ? ' ($uncovered with nobody free)' : ''}.'
             : 'Request rejected.'),
-        backgroundColor: approve ? Colors.green.shade700 : null,
       ));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('$e'.replaceFirst('Exception: ', '')),
-          backgroundColor: Theme.of(context).colorScheme.error,
+          backgroundColor: AppColors.danger,
         ));
       }
     } finally {
@@ -54,7 +55,6 @@ class _HodApprovalsCardState extends ConsumerState<HodApprovalsCard> {
   @override
   Widget build(BuildContext context) {
     final pending = ref.watch(pendingApprovalsProvider);
-    final theme = Theme.of(context);
 
     return pending.when(
       loading: () => const SizedBox.shrink(),
@@ -62,41 +62,24 @@ class _HodApprovalsCardState extends ConsumerState<HodApprovalsCard> {
       data: (list) {
         if (list.isEmpty) return const SizedBox.shrink();
 
-        return Card(
-          elevation: 0,
-          color: theme.colorScheme.errorContainer.withValues(alpha: 0.25),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  Icon(Icons.approval_outlined, color: theme.colorScheme.primary),
-                  const SizedBox(width: 10),
-                  Text('Awaiting your approval',
-                      style: theme.textTheme.titleMedium),
-                  const SizedBox(width: 8),
-                  Chip(
-                    visualDensity: VisualDensity.compact,
-                    label: Text('${list.length}'),
-                    backgroundColor: theme.colorScheme.error,
-                    labelStyle: const TextStyle(color: Colors.white),
-                  ),
-                ]),
-                const SizedBox(height: 4),
-                Text('Leave from your department.',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                const SizedBox(height: 14),
-                for (final l in list)
-                  _Row(
-                    leave: l,
-                    busy: _busyId == l.id,
-                    onApprove: () => _review(l, true),
-                    onReject: () => _review(l, false),
-                  ),
-              ],
-            ),
+        return Padding(
+          padding: const EdgeInsets.only(bottom: AppSpace.lg),
+          child: SectionCard(
+            title: 'Awaiting your approval',
+            subtitle: 'Leave requests from your department',
+            icon: Icons.approval_outlined,
+            tone: Tone.danger,
+            accentBorder: AppColors.danger,
+            trailing: StatusPill(label: '${list.length}', tone: Tone.danger),
+            child: Column(children: [
+              for (final l in list)
+                _Row(
+                  leave: l,
+                  busy: _busyId == l.id,
+                  onApprove: () => _review(l, true),
+                  onReject: () => _review(l, false),
+                ),
+            ]),
           ),
         );
       },
@@ -120,45 +103,74 @@ class _Row extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(children: [
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(leave.teacherName ?? 'A teacher',
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            Text(
-              [
-                leave.dateRange,
-                if (leave.reason != null) leave.reason!,
-              ].join(' · '),
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-          ]),
+
+    final details = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(leave.teacherName ?? 'A teacher',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+        Text(
+          [leave.dateRange, ?leave.reason].join(' · '),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.labelSmall,
         ),
-        if (busy)
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
+      ],
+    );
+
+    final buttons = busy
+        ? const Padding(
+            padding: EdgeInsets.symmetric(horizontal: AppSpace.lg),
             child: SizedBox(
                 width: 18, height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2)),
           )
-        else ...[
-          TextButton(onPressed: onReject, child: const Text('Reject')),
-          const SizedBox(width: 6),
-          FilledButton(
-            onPressed: onApprove,
-            style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
-            child: const Text('Approve'),
-          ),
-        ],
-      ]),
+        : Row(mainAxisSize: MainAxisSize.min, children: [
+            TextButton(onPressed: onReject, child: const Text('Reject')),
+            const SizedBox(width: AppSpace.sm),
+            FilledButton(
+              onPressed: onApprove,
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 10),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text('Approve'),
+            ),
+          ]);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpace.sm),
+      padding: const EdgeInsets.all(AppSpace.md),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.border),
+      ),
+      // Two buttons plus a name will not fit beside each other on a phone, so
+      // below 420 the actions move onto their own line rather than being
+      // squeezed until something overflows.
+      child: LayoutBuilder(builder: (context, constraints) {
+        if (constraints.maxWidth < 420) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              details,
+              const SizedBox(height: AppSpace.md),
+              Align(alignment: Alignment.centerRight, child: buttons),
+            ],
+          );
+        }
+        return Row(children: [
+          Expanded(child: details),
+          const SizedBox(width: AppSpace.sm),
+          buttons,
+        ]);
+      }),
     );
   }
 }

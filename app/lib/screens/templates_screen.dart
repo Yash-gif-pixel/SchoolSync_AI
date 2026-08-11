@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/templates_repository.dart';
 import '../models/document_template.dart';
+import '../widgets/shell/app_shell.dart';
+import '../widgets/ui/primitives.dart';
 import 'template_editor_screen.dart';
 
 /// Manage the forms this school uses. Every school prints its own paperwork,
@@ -112,20 +114,18 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
     final templates = ref.watch(templatesProvider);
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Form templates'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(templatesProvider),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
+    return AppShell(
+      title: 'Form templates',
+      subtitle: 'Teach the reader your school’s own paperwork',
+      actions: [
+        IconButton(
+          tooltip: 'Refresh',
+          icon: const Icon(Icons.refresh),
+          onPressed: () => ref.invalidate(templatesProvider),
+        ),
+      ],
+      child: PageBody(
+        maxWidth: 900,
         children: [
           Card(
             elevation: 0,

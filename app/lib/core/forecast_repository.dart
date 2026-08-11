@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/forecast.dart';
+import 'auth_controller.dart';
 import 'config.dart';
 
 class ForecastRepository {
@@ -36,5 +37,6 @@ final forecastRepositoryProvider =
     Provider<ForecastRepository>((_) => const ForecastRepository());
 
 final staffingForecastProvider = FutureProvider<StaffingForecast>((ref) async {
+  ref.watch(currentUserIdProvider);
   return ref.read(forecastRepositoryProvider).staffing();
 });

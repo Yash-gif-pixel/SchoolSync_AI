@@ -70,8 +70,8 @@ class AuthController extends Notifier<AppAuthState> {
     try {
       final row = await _sb
           .from('profiles')
-          .select('id, full_name, role, is_approver, employee_code, '
-              'department_id, departments(name)')
+          .select('id, full_name, role, is_approver, is_vice_principal, is_principal, '
+              'employee_code, department_id, departments(name)')
           .eq('id', session.user.id)
           .maybeSingle();
 
@@ -115,3 +115,15 @@ class AuthController extends Notifier<AppAuthState> {
 
 final authControllerProvider =
     NotifierProvider<AuthController, AppAuthState>(AuthController.new);
+
+/// The signed-in user's id, and nothing else.
+///
+/// **Every provider holding user-scoped data must watch this.** Riverpod keeps
+/// a non-autoDispose provider alive for the life of the app, so without this
+/// dependency a provider carries on serving the previous account's data after
+/// someone signs out and back in as a different user in the same tab — which
+/// is how a teacher's attendance appeared as already taken on the head of
+/// department's dashboard.
+final currentUserIdProvider = Provider<String?>(
+  (ref) => ref.watch(authControllerProvider.select((s) => s.profile?.id)),
+);

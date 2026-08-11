@@ -123,6 +123,17 @@ def main() -> int:
         print("\n2. Read the note")
         start = next_weekday(2)
         end = next_weekday(3)
+
+        # Leave now cannot overlap existing leave, so clear anything already
+        # on file for these dates — from a demo, or an interrupted run.
+        for r0 in (sb.table("leave_requests")
+                   .select("id").eq("teacher_id", teacher["id"])
+                   .lte("from_date", end.isoformat())
+                   .gte("to_date", start.isoformat()).execute().data):
+            sb.table("substitutions").delete().eq(
+                "leave_request_id", r0["id"]).execute()
+            sb.table("leave_requests").delete().eq("id", r0["id"]).execute()
+
         img = make_note(teacher["full_name"], start, end, "Viral fever")
 
         r = c.post(f"{API}/documents/extract", headers=A,

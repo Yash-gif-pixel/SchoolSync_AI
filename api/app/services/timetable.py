@@ -37,9 +37,63 @@ from ortools.sat.python import cp_model
 # Weight on unplaced periods. Large enough that the solver will always accept
 # an ugly timetable over an incomplete one.
 SLACK_WEIGHT = 1000
+# Teaching straight through with no break. Expensive — but deliberately well
+# below SLACK_WEIGHT, so the solver never drops a lesson to avoid one.
+LONG_RUN_WEIGHT = 40
+# A day at the daily maximum is legal but tiring, so spread them out.
+HEAVY_DAY_WEIGHT = 6
+# Idle time between lessons. Low, and deliberately so — see Rules below.
 GAP_WEIGHT = 1
 
-DEFAULT_TIME_LIMIT = 20.0
+# Feasibility alone now takes about eleven seconds under the daily cap, so the
+# old 20s default left almost nothing for the comfort pass.
+DEFAULT_TIME_LIMIT = 45.0
+
+
+@dataclass
+class Rules:
+    """What a humane timetable means for this school.
+
+    These were hardcoded assumptions until a generated timetable put six
+    teachers through six consecutive periods with no break. The cause was the
+    objective, not the staffing: the old model *minimised teacher gaps*, and a
+    day of six back-to-back lessons has zero gaps — so it scored perfectly.
+    The optimiser was rewarding exactly the thing that made the timetable
+    unusable.
+
+    Now the humane limits are hard constraints, and idle time is only a mild
+    preference. A single free period mid-morning is not waste; it is the break
+    that makes the day possible.
+    """
+
+    #: Nobody teaches every period of the day. Hard — and it costs nothing:
+    #: capping at 5 still solves to optimality in about eleven seconds.
+    max_periods_per_day: int = 5
+
+    #: Lessons back to back before a break is wanted. **Strongly preferred,
+    #: not enforced.** Making this hard was tested and it does not hold: at
+    #: 55 teachers a limit of 3 left 24 periods unplaced and a limit of 4 left
+    #: 5, because 40 classes need 40 of the 55 teachers busy in *every* slot,
+    #: so there is very little freedom in where the breaks can fall. As a
+    #: penalty the solver removes almost all long runs and still places the
+    #: whole curriculum.
+    preferred_max_consecutive: int = 3
+
+    #: Refuse to exceed the run limit rather than merely disliking it. Off by
+    #: default; turning it on trades completeness for comfort, and preflight
+    #: says so before the search starts.
+    enforce_consecutive: bool = False
+
+    #: Prefer an even week over five heavy days and one empty one.
+    balance_daily_load: bool = True
+
+    def as_dict(self) -> dict:
+        return {
+            "max_periods_per_day": self.max_periods_per_day,
+            "preferred_max_consecutive": self.preferred_max_consecutive,
+            "enforce_consecutive": self.enforce_consecutive,
+            "balance_daily_load": self.balance_daily_load,
+        }
 
 
 @dataclass
@@ -71,8 +125,9 @@ class SolveResult:
 
 
 # --------------------------------------------------------------- pre-flight
-def preflight(data: dict) -> list[Diagnostic]:
+def preflight(data: dict, rules: Rules | None = None) -> list[Diagnostic]:
     """Arithmetic that decides feasibility before any search happens."""
+    rules = rules or Rules()
     out: list[Diagnostic] = []
     slots = data["slots"]
     n_slots = len(slots)
@@ -86,15 +141,25 @@ def preflight(data: dict) -> list[Diagnostic]:
     for a in data["assignments"]:
         load[a["teacher_id"]] += a["periods_per_week"]
 
+    # The daily cap lowers the real weekly ceiling below the number of slots:
+    # 5 periods a day over 6 days is 30, not 36. Checking that here means an
+    # impossible rule is reported as arithmetic in milliseconds, rather than
+    # as a solver timeout.
+    weekly_ceiling = min(n_slots, rules.max_periods_per_day * n_days)
+
     for tid, total in sorted(load.items(), key=lambda kv: -kv[1]):
-        if total > n_slots:
+        if total > weekly_ceiling:
             name = teachers.get(tid, {}).get("full_name", tid[:8])
+            capped = weekly_ceiling < n_slots
             out.append(Diagnostic(
                 "error", "teacher_overcommitted",
-                f"{name} is assigned {total} periods but the week only has "
-                f"{n_slots}.",
-                f"Over-committed by {total - n_slots} periods. Move a class to "
-                f"another teacher in the same department.",
+                f"{name} is assigned {total} periods but can teach at most "
+                f"{weekly_ceiling} a week"
+                + (f" under the {rules.max_periods_per_day}-per-day limit."
+                   if capped else f" — the week only has {n_slots}."),
+                f"Over by {total - weekly_ceiling} periods. Move a class to "
+                f"another teacher in the same department"
+                + (", or raise the daily limit." if capped else "."),
             ))
 
     # --- class load --------------------------------------------------
@@ -150,20 +215,23 @@ def preflight(data: dict) -> list[Diagnostic]:
 
 # ------------------------------------------------------------------- solve
 def solve(data: dict, time_limit: float = DEFAULT_TIME_LIMIT,
-          optimise_gaps: bool = True) -> SolveResult:
+          optimise_gaps: bool = True, rules: Rules | None = None) -> SolveResult:
     """Two phases, because they are different problems.
 
-    Phase 1 minimises unplaced periods only. On a fully-packed school that
-    closes in under a second, and it guarantees we always have a complete
-    timetable in hand.
+    Phase 1 places every period and nothing else. Phase 2 re-solves for
+    comfort — short runs, an even week — warm-started from phase one, so a
+    timeout degrades to "valid but less pleasant" rather than "incomplete".
 
-    Phase 2 re-solves with the teacher-gap objective, warm-started from phase
-    one's answer, using whatever time is left. Because CP-SAT is seeded with a
-    known-good solution it can only improve on it, so a timeout degrades to
-    "valid but gappier" rather than "incomplete".
+    **Phase 1's budget has to be generous.** It used to get five seconds,
+    which was ample when the only hard constraints were clashes and lab
+    capacity. Adding a daily cap made feasibility itself take about eleven
+    seconds, so five was no longer enough: phase 1 handed over a broken
+    timetable and phase 2 dutifully polished it, ending with 874 periods
+    unplaced. Feasibility comes first and gets at least half the time.
     """
     t0 = time.perf_counter()
-    diagnostics = preflight(data)
+    rules = rules or Rules()
+    diagnostics = preflight(data, rules)
 
     # "Every class slot is filled" is a much stronger propagator, but it is
     # only TRUE when the school is properly staffed. Where preflight has
@@ -172,14 +240,24 @@ def solve(data: dict, time_limit: float = DEFAULT_TIME_LIMIT,
     # unplaced periods with an explanation.
     strict = not any(d.severity == "error" for d in diagnostics)
 
-    phase1_budget = min(5.0, max(1.0, time_limit * 0.25)) if optimise_gaps else time_limit
-    first = _solve_once(data, phase1_budget, gaps=False, hint=None, strict=strict)
+    # Strict packing either lands in the first few seconds or not at all, so
+    # a long phase-1 slice buys nothing and starves whatever has to run next
+    # — the relaxed retry, or the comfort pass.
+    phase1_budget = min(time_limit, max(12.0, time_limit * 0.4))
+    first = _solve_once(data, phase1_budget, gaps=False, hint=None, strict=strict, rules=rules)
 
     if strict and first.status == "infeasible":
         # Something the arithmetic checks could not see. Re-solve without the
         # strict packing so the reviewer gets a near-miss plus a diagnosis
         # rather than a bare INFEASIBLE.
-        first = _solve_once(data, phase1_budget, gaps=False, hint=None, strict=False)
+        #
+        # Budgeted from what is LEFT, not another full phase-1 slice: strict
+        # packing that times out has already spent its share, and charging a
+        # second one doubled the wall clock straight past the caller's limit.
+        retry = time_limit - (time.perf_counter() - t0)
+        if retry >= 2.0:
+            first = _solve_once(data, retry, gaps=False, hint=None,
+                                strict=False, rules=rules)
         strict = False
 
     if not optimise_gaps or first.status == "infeasible" or not first.entries:
@@ -195,14 +273,20 @@ def solve(data: dict, time_limit: float = DEFAULT_TIME_LIMIT,
         first.stats["phases"] = 1
         return first
 
-    second = _solve_once(data, remaining, gaps=True, hint=first.entries, strict=strict)
+    second = _solve_once(data, remaining, gaps=True, hint=first.entries, strict=strict, rules=rules)
 
-    # Never hand back something worse than phase one.
-    best = second if (
-        second.entries
-        and second.stats.get("unplaced_periods", 1) <= first.stats.get("unplaced_periods", 0)
-        and second.stats.get("teacher_gaps", 10**9) <= first.stats.get("teacher_gaps", 10**9)
-    ) else first
+    # Never hand back something worse than phase one. Ranked the way the
+    # school would rank it: place every lesson first, then avoid teaching
+    # without a break, and only then worry about idle time.
+    def rank(r: SolveResult) -> tuple:
+        s = r.stats
+        return (
+            s.get("unplaced_periods") or 0,
+            s.get("long_runs") or 0,
+            s.get("teacher_gaps") or 0,
+        )
+
+    best = second if (second.entries and rank(second) <= rank(first)) else first
 
     best.diagnostics = diagnostics + best.diagnostics
     best.stats["wall_seconds"] = round(time.perf_counter() - t0, 2)
@@ -213,7 +297,8 @@ def solve(data: dict, time_limit: float = DEFAULT_TIME_LIMIT,
 
 
 def _solve_once(data: dict, time_limit: float, gaps: bool,
-                hint: list[dict] | None, strict: bool = True) -> SolveResult:
+                hint: list[dict] | None, strict: bool = True,
+                rules: Rules | None = None) -> SolveResult:
     t0 = time.perf_counter()
 
     assignments = data["assignments"]
@@ -306,6 +391,90 @@ def _solve_once(data: dict, time_limit: float, gaps: bool,
             for sid in blocked:
                 model.Add(x[a["id"], sid] == 0)
 
+    # --- is this teacher busy in this slot? -----------------------------
+    # Built once and reused by the daily cap, the consecutive-run cap and the
+    # objective. AtMostOne above guarantees the sum is 0 or 1.
+    works: dict[tuple[str, int, int], cp_model.IntVar] = {}
+    for tid, group in by_teacher.items():
+        for day, day_slots in by_day.items():
+            for i, s in enumerate(day_slots):
+                w = model.NewBoolVar(f"w_{tid[:6]}_{day}_{i}")
+                model.Add(w == sum(x[a["id"], s["id"]] for a in group))
+                works[tid, day, i] = w
+
+    # --- nobody teaches the whole day -----------------------------------
+    caps = {
+        day: min(rules.max_periods_per_day, len(ds))
+        for day, ds in by_day.items()
+    }
+    total_cap = sum(caps.values())
+
+    heavy_days: list[cp_model.IntVar] = []
+    for tid in by_teacher:
+        week_owed = sum(a["periods_per_week"] for a in by_teacher[tid])
+        week_slack = [slack[a["id"]] for a in by_teacher[tid]]
+
+        for day, day_slots in by_day.items():
+            n = len(day_slots)
+            todays = [works[tid, day, i] for i in range(n)]
+            cap = caps[day]
+            model.Add(sum(todays) <= cap)
+
+            # The mirror of the cap, and the reason this model solves at all.
+            # A teacher owing 27 lessons who can do at most 5 on each of the
+            # other five days must do at least 2 today. That is implied by the
+            # constraints above, but CP-SAT cannot see it: the weekly total
+            # lives on the assignment variables, the daily cap on these. Say it
+            # out loud and a 25%-of-the-time feasibility search becomes
+            # reliable. Written with slack so it stays true when the school is
+            # short-staffed and lessons go unplaced.
+            elsewhere = total_cap - cap
+            if week_owed > elsewhere:
+                model.Add(
+                    sum(todays) + sum(week_slack) + elsewhere >= week_owed)
+
+            # Only built when the objective will actually use them. Phase 1
+            # cares solely about placing periods, and making it carry a
+            # thousand reified booleans it never reads is what turned a
+            # complete solve into thirteen unplaced lessons.
+            if gaps and rules.balance_daily_load and cap < n:
+                # A day AT the cap is allowed but tiring. Counting them lets
+                # the objective prefer 5,5,4,4,4,4 over 5,5,5,5,5,1.
+                at_cap = model.NewBoolVar(f"cap_{tid[:6]}_{day}")
+                model.Add(sum(todays) >= cap).OnlyEnforceIf(at_cap)
+                model.Add(sum(todays) <= cap - 1).OnlyEnforceIf(at_cap.Not())
+                heavy_days.append(at_cap)
+
+    # --- a break after so many lessons in a row -------------------------
+    # A sliding window: within any stretch of (limit + 1) slots, at most
+    # `limit` may be taught, which forces a free period into every longer run.
+    #
+    # Enforced only if the school insists. By default each violated window is
+    # merely expensive, so the solver strips out nearly all long runs but
+    # never abandons a lesson to do it.
+    run = rules.preferred_max_consecutive
+    long_runs: list[cp_model.IntVar] = []
+    # Soft penalties are pointless in phase 1, which has no comfort objective,
+    # and their reified booleans slow the feasibility search considerably.
+    if rules.enforce_consecutive or gaps:
+        for tid in by_teacher:
+            for day, day_slots in by_day.items():
+                n = len(day_slots)
+                if run >= n:
+                    continue
+                for start_i in range(n - run):
+                    window = [
+                        works[tid, day, start_i + k] for k in range(run + 1)
+                    ]
+                    if rules.enforce_consecutive:
+                        model.Add(sum(window) <= run)
+                    else:
+                        over = model.NewBoolVar(f"run_{tid[:6]}_{day}_{start_i}")
+                        # over == 1 whenever the whole window is taught.
+                        model.Add(sum(window) <= run).OnlyEnforceIf(over.Not())
+                        model.Add(sum(window) == run + 1).OnlyEnforceIf(over)
+                        long_runs.append(over)
+
     # --- warm start -----------------------------------------------------
     if hint:
         chosen = {(e["assignment_id"], e["slot_id"]) for e in hint}
@@ -316,21 +485,27 @@ def _solve_once(data: dict, time_limit: float, gaps: bool,
     terms = [SLACK_WEIGHT * s for s in slack.values()]
 
     if gaps:
-        # A gap is a free period between two taught periods on the same day.
-        # Teachers hate them, and a timetable that avoids them reads as
-        # considered rather than merely valid.
-        for tid, group in by_teacher.items():
+        # Teaching without a break is the thing this optimiser exists to
+        # avoid, so it is the most expensive item short of losing a lesson.
+        terms += [LONG_RUN_WEIGHT * r for r in long_runs]
+
+        # Spread the week out. With a hard daily cap in place, minimising the
+        # number of days AT that cap is what turns 5,5,5,5,5,1 into
+        # 5,5,4,4,4,4.
+        terms += [HEAVY_DAY_WEIGHT * h for h in heavy_days]
+
+        # Idle time still counts, but only faintly, and it can no longer be
+        # driven to zero by stacking the day into one solid block — the run
+        # cap forbids that. What it now discourages is keeping a teacher at
+        # school from first period to last for two scattered lessons.
+        for tid in by_teacher:
             for day, day_slots in by_day.items():
                 n = len(day_slots)
-                works = []
-                for i, s in enumerate(day_slots):
-                    w = model.NewBoolVar(f"w_{tid[:6]}_{day}_{i}")
-                    model.Add(w == sum(x[a["id"], s["id"]] for a in group))
-                    works.append(w)
+                todays = [works[tid, day, i] for i in range(n)]
 
                 # first taught index, and last taught index + 1
                 firsts, lasts = [], []
-                for i, w in enumerate(works):
+                for i, w in enumerate(todays):
                     v = model.NewIntVar(0, n, f"v_{tid[:6]}_{day}_{i}")
                     model.Add(v == i).OnlyEnforceIf(w)
                     model.Add(v == n).OnlyEnforceIf(w.Not())
@@ -351,7 +526,7 @@ def _solve_once(data: dict, time_limit: float, gaps: bool,
                 gap_var = model.NewIntVar(0, n, f"gap_{tid[:6]}_{day}")
                 # span minus periods taught, floored at zero so an idle day
                 # (first = n, last = 0) contributes nothing.
-                model.Add(gap_var >= last - first - sum(works))
+                model.Add(gap_var >= last - first - sum(todays))
                 terms.append(GAP_WEIGHT * gap_var)
 
     model.Minimize(sum(terms))
@@ -412,6 +587,8 @@ def _solve_once(data: dict, time_limit: float, gaps: bool,
         ))
 
     gaps_total = _count_gaps(entries, data, slots)
+    long_run_days = _count_long_runs(
+        entries, data, slots, rules.preferred_max_consecutive)
 
     stats = {
         "solve_seconds": round(elapsed, 2),
@@ -424,6 +601,8 @@ def _solve_once(data: dict, time_limit: float, gaps: bool,
         "entries": len(entries),
         "unplaced_periods": total_unplaced,
         "teacher_gaps": gaps_total,
+        "long_runs": long_run_days,
+        "rules": rules.as_dict(),
         "gap_objective_used": gaps,
         "objective": solver.ObjectiveValue(),
         "solver_status": solver.StatusName(status),
@@ -456,6 +635,39 @@ def _assign_rooms(placed_by_slot: dict, data: dict) -> None:
                 used[a["lab_type"]] += 1
             else:
                 entry["room_id"] = home.get(a["class_id"])
+
+
+def _count_long_runs(entries: list[dict], data: dict, slots: list[dict],
+                     limit: int) -> int:
+    """Teacher-days where someone teaches more than `limit` lessons back to
+    back. Measured from the solution rather than read off the model, so it
+    stays honest whether the rule was hard, soft, or off."""
+    ordered = sorted(slots, key=lambda s: (s["day_of_week"], s["slot_index"]))
+    position = {}
+    for s in ordered:
+        position.setdefault(s["day_of_week"], []).append(s["slot_index"])
+    index_of = {
+        (d, si): i for d, sis in position.items() for i, si in enumerate(sis)
+    }
+    slot_meta = {s["id"]: s for s in slots}
+    teacher_of = {a["id"]: a["teacher_id"] for a in data["assignments"]}
+
+    per_day: dict[tuple[str, int], list[int]] = defaultdict(list)
+    for e in entries:
+        s = slot_meta[e["slot_id"]]
+        key = (teacher_of[e["assignment_id"]], s["day_of_week"])
+        per_day[key].append(index_of[s["day_of_week"], s["slot_index"]])
+
+    over = 0
+    for idxs in per_day.values():
+        idxs.sort()
+        best = current = 1
+        for a, b in zip(idxs, idxs[1:]):
+            current = current + 1 if b == a + 1 else 1
+            best = max(best, current)
+        if best > limit:
+            over += 1
+    return over
 
 
 def _count_gaps(entries: list[dict], data: dict, slots: list[dict]) -> int:

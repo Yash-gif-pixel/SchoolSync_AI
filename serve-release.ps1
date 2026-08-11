@@ -32,8 +32,7 @@ if (-not $ok) {
 
 Write-Host "Serving build\web on http://127.0.0.1:5000 ..." -ForegroundColor Cyan
 Start-Process -FilePath "$root\.venv\Scripts\python.exe" `
-    -ArgumentList "-m", "http.server", "5000", "--bind", "127.0.0.1", `
-                  "--directory", "$root\app\build\web" `
+    -ArgumentList "$root\serve_nocache.py", "5000", "$root\app\build\web" `
     -WindowStyle Hidden
 
 Start-Sleep -Seconds 2

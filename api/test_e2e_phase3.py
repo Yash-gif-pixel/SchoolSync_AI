@@ -93,6 +93,12 @@ def main() -> int:
             class_id, slot_id = p["class_id"], p["slot_id"]
             check("periods carry a marked flag", "marked" in p)
 
+        # This period may already have been marked — by a demo, or an earlier
+        # run. Clear it so the default-to-present behaviour is actually what
+        # gets tested rather than whatever was left behind.
+        sb.table("attendance").delete().eq("class_id", class_id).eq(
+            "slot_id", slot_id).eq("date", dt.date.today().isoformat()).execute()
+
         r = c.get(f"{API}/attendance/roster", headers=T,
                   params={"class_id": class_id, "slot_id": slot_id})
         if not check("roster loads", r.status_code == 200, str(r.status_code)):
@@ -145,6 +151,19 @@ def main() -> int:
         # --------------------------------------------------------- leave
         print("\n2. Leave request")
         day = next_weekday()
+
+        # Leave can no longer overlap existing leave, so clear anything on
+        # file for the days this test uses — from a demo, or a run that was
+        # interrupted before its own cleanup.
+        window_end = (day + dt.timedelta(days=5)).isoformat()
+        for old in (sb.table("leave_requests").select("id")
+                    .eq("teacher_id", teacher["id"])
+                    .gte("to_date", day.isoformat())
+                    .lte("from_date", window_end).execute().data):
+            sb.table("substitutions").delete().eq(
+                "leave_request_id", old["id"]).execute()
+            sb.table("leave_requests").delete().eq("id", old["id"]).execute()
+
         r = c.post(f"{API}/leave", headers=T, json={
             "from_date": day.isoformat(), "to_date": day.isoformat(),
             "reason": "E2E test — fever"})

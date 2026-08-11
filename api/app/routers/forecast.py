@@ -75,11 +75,23 @@ def staffing(
                   .gte("from_date", window_start.isoformat())
                   .limit(2000).execute().data)
 
-    events = (admin().table("calendar_events")
-              .select("name, date, event_type, teachers_required")
-              .gte("date", today.isoformat())
-              .lte("date", (today + dt.timedelta(days=horizon_days)).isoformat())
-              .execute().data)
+    horizon_end = today + dt.timedelta(days=horizon_days)
+    raw_events = (admin().table("calendar_events")
+                  .select("name, date, ends_on, event_type, teachers_required")
+                  .lte("date", horizon_end.isoformat())
+                  .execute().data)
+
+    # A three-day Annual Day costs twelve teachers on all three days, not just
+    # the first. The forecast groups by a single `date`, so a multi-day event
+    # is expanded into one entry per day it actually runs.
+    events = []
+    for e in raw_events:
+        start = dt.date.fromisoformat(e["date"])
+        end = dt.date.fromisoformat(e.get("ends_on") or e["date"])
+        day = max(start, today)
+        while day <= min(end, horizon_end):
+            events.append({**e, "date": day.isoformat()})
+            day += dt.timedelta(days=1)
 
     timetable, slots_per_day = _timetable_loads()
 

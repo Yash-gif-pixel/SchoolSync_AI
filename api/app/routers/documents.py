@@ -11,6 +11,7 @@ handles admission forms, leave notes and anything else a school scans.
 
 from __future__ import annotations
 
+import datetime as dt
 import statistics
 import uuid
 from typing import Any
@@ -21,6 +22,7 @@ from pydantic import BaseModel
 from ..auth import CurrentUser, get_current_user, require_admin
 from ..db import admin
 from ..services.document_ai import extract as run_extraction
+from ..services.leave_rules import describe_clash, overlapping_leave
 from ..services.people import resolve_person
 from ..services.validation import validate
 
@@ -272,6 +274,20 @@ def _commit_leave(template: dict, values: dict, doc_id: str, user: CurrentUser) 
     else:
         row["teacher_id"] = user.id
         owner = user.full_name
+
+    # A scanned note is a second door into the leave table, and it must refuse
+    # a clash exactly as the leave form does. Without this the database's own
+    # exclusion constraint fires instead and the reviewer gets a bare 500.
+    clashes = overlapping_leave(
+        admin(),
+        row["teacher_id"],
+        dt.date.fromisoformat(row["from_date"]),
+        dt.date.fromisoformat(row["to_date"]),
+    )
+    if clashes:
+        raise HTTPException(409, describe_clash(
+            clashes[0], subject=f"{owner} has",
+        ))
 
     leave = admin().table("leave_requests").insert(row).execute().data[0]
     same_day = leave["from_date"] == leave["to_date"]

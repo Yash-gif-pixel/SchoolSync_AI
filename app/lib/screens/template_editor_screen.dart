@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/templates_repository.dart';
 import '../models/document_template.dart';
+import '../theme/app_theme.dart';
 import '../widgets/template_field_editor.dart';
+import '../widgets/ui/primitives.dart';
 
 /// Curate a template — either one the AI drafted from a scanned blank form, or
 /// one built by hand. The AI's proposal is always a starting point, never
@@ -136,21 +138,14 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
       children: [
         if (widget.proposal != null) _DiscoveryBanner(proposal: widget.proposal!),
         if (_readOnly)
-          Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(8),
+          const Padding(
+            padding: EdgeInsets.only(bottom: AppSpace.lg),
+            child: Callout(
+              tone: Tone.neutral,
+              icon: Icons.lock_outline,
+              message: 'This is the built-in template',
+              detail: 'Duplicate it to make a version you can edit.',
             ),
-            child: Row(children: [
-              const Icon(Icons.lock_outline, size: 18),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Text('This is the built-in template. Duplicate it to make '
-                    'a version you can edit.'),
-              ),
-            ]),
           ),
         TextField(
           controller: _name,
@@ -261,43 +256,87 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
           ? null
           : SafeArea(
               child: Container(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerLow,
-                  border: Border(top: BorderSide(color: theme.dividerColor)),
+                padding: const EdgeInsets.all(AppSpace.md),
+                decoration: const BoxDecoration(
+                  color: AppColors.surface,
+                  border: Border(top: BorderSide(color: AppColors.border)),
                 ),
-                child: Row(children: [
-                  Expanded(
-                    child: _error != null
-                        ? Text(_error!, style: TextStyle(color: theme.colorScheme.error))
-                        : problems.isEmpty
-                            ? const Text('Ready to save.')
-                            : Text(problems.first,
-                                style: TextStyle(color: theme.colorScheme.error)),
-                  ),
-                  if (problems.length > 1)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 12),
-                      child: Text('+${problems.length - 1} more',
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: theme.colorScheme.error)),
+                // The cap comes from LayoutBuilder because a Wrap hands its
+                // children unbounded width — a bare maxWidth of 620 would be
+                // taken even on a 380px screen and overflow.
+                child: LayoutBuilder(builder: (context, bar) => Wrap(
+                  spacing: AppSpace.md,
+                  runSpacing: AppSpace.sm,
+                  alignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    ConstrainedBox(
+                      constraints:
+                          BoxConstraints(maxWidth: bar.maxWidth.clamp(0, 620)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(
+                          problems.isEmpty && _error == null
+                              ? Icons.check_circle_outline
+                              : Icons.block,
+                          size: 17,
+                          color: problems.isEmpty && _error == null
+                              ? AppColors.success
+                              : AppColors.danger,
+                        ),
+                        const SizedBox(width: AppSpace.sm),
+                        Flexible(
+                          child: Text(
+                            _error ??
+                                (problems.isEmpty
+                                    ? 'Ready to save.'
+                                    : problems.length == 1
+                                        ? problems.first
+                                        : '${problems.first} '
+                                            '(+${problems.length - 1} more)'),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: problems.isEmpty && _error == null
+                                  ? AppColors.textSecondary
+                                  : AppColors.danger,
+                            ),
+                          ),
+                        ),
+                      ]),
                     ),
-                  TextButton(
-                    onPressed: _saving ? null : () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.icon(
-                    onPressed: (_saving || problems.isNotEmpty) ? null : _save,
-                    icon: _saving
-                        ? const SizedBox(
-                            width: 16, height: 16,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.save_outlined, size: 18),
-                    label: Text(_saving ? 'Saving…' : 'Save template'),
-                  ),
-                ]),
+                    // Also constrained: a Wrap only breaks BETWEEN children,
+                    // so a single child wider than the line still overflows.
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: bar.maxWidth),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        TextButton(
+                          onPressed: _saving
+                              ? null
+                              : () => Navigator.of(context).pop(),
+                          child: const Text('Cancel'),
+                        ),
+                        const SizedBox(width: AppSpace.sm),
+                        Flexible(
+                          child: FilledButton.icon(
+                            onPressed:
+                                (_saving || problems.isNotEmpty) ? null : _save,
+                            icon: _saving
+                                ? const SizedBox(
+                                    width: 16, height: 16,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.white))
+                                : const Icon(Icons.save_outlined, size: 18),
+                            label: Text(
+                              _saving
+                                  ? 'Saving…'
+                                  : (bar.maxWidth < 420 ? 'Save' : 'Save template'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ]),
+                    ),
+                  ],
+                )),
               ),
             ),
     );
@@ -309,35 +348,17 @@ class _DiscoveryBanner extends StatelessWidget {
   final TemplateProposal proposal;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 18),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(Icons.auto_awesome, size: 18, color: theme.colorScheme.primary),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Drafted from your form',
-                style: theme.textTheme.labelLarge
-                    ?.copyWith(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 3),
-            Text(
-              'Read as a ${proposal.documentKind.replaceAll('_', ' ')} with '
-              '${proposal.fields.length} fields. Check every row before saving — '
-              'labels and types are a first guess.',
-              style: theme.textTheme.bodySmall,
-            ),
-          ]),
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: AppSpace.lg),
+        child: Callout(
+          tone: Tone.brand,
+          icon: Icons.auto_awesome,
+          message: 'Drafted from your form',
+          detail: 'Read as a ${proposal.documentKind.replaceAll('_', ' ')} '
+              'with ${proposal.fields.length} fields. Check every row before '
+              'saving — labels and types are a first guess.',
         ),
-      ]),
-    );
-  }
+      );
 }
 
 class _SamplePane extends StatelessWidget {

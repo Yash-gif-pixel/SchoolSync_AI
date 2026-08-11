@@ -100,7 +100,12 @@ class TimetableGrid extends StatelessWidget {
           ]),
           const Divider(height: 1),
           for (final p in periods)
-            Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            // Not CrossAxisAlignment.stretch: in a Row that means "fill
+            // vertically", which needs a bounded height. Inside a scroll view
+            // the height is unbounded, so it throws and — in a release build,
+            // where there is no red error box — the grid silently renders
+            // nothing. Every child already declares its own height.
+            Row(children: [
               SizedBox(
                 width: labelWidth,
                 height: 62,

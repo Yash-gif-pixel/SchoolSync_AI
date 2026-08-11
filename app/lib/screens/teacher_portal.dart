@@ -2,74 +2,53 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/auth_controller.dart';
+import '../core/operations_repository.dart';
 import '../widgets/hod_approvals_card.dart';
-import '../widgets/leave_card.dart';
-import '../widgets/my_timetable_card.dart';
-import '../widgets/phase_roadmap_card.dart';
-import '../widgets/teacher_summary_card.dart';
+import '../widgets/shell/app_shell.dart';
 import '../widgets/today_periods_card.dart';
-import '../widgets/user_chip.dart';
+import '../widgets/ui/primitives.dart';
 
+/// A teacher's day: anything awaiting their approval, then their periods.
 class TeacherPortal extends ConsumerWidget {
   const TeacherPortal({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(authControllerProvider).profile;
-    final theme = Theme.of(context);
+    final approvals = ref.watch(pendingApprovalsProvider);
+    final pending = approvals.whenOrNull(data: (l) => l.length) ?? 0;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Teacher Portal'),
-        actions: const [UserChip()],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          Row(children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Welcome, ${profile?.fullName ?? ''}',
-                      style: theme.textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 4),
-                  Text(
-                    [
-                      if (profile?.departmentName != null)
-                        profile!.departmentName!,
-                      if (profile?.isApprover ?? false) 'Head of Department',
-                    ].join(' · '),
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                  ),
-                ],
-              ),
+    return AppShell(
+      title: 'Good day, ${profile?.fullName.split(' ').first ?? ''}',
+      subtitle: [
+        if (profile?.departmentName != null) profile!.departmentName!,
+        if (profile?.isApprover ?? false) 'Head of Department',
+      ].join(' · '),
+      actions: [
+        if (pending > 0)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: StatusPill(
+              label: '$pending awaiting you',
+              tone: Tone.danger,
+              icon: Icons.approval_outlined,
             ),
-            if (profile?.isApprover ?? false)
-              Chip(
-                avatar: const Icon(Icons.verified_user_outlined, size: 18),
-                label: const Text('Can approve leave'),
-                backgroundColor: theme.colorScheme.secondaryContainer,
-              ),
-          ]),
-          const SizedBox(height: 20),
-          // Renders itself away unless this teacher is an approver with a
-          // queue, so a plain teacher never sees an empty panel.
-          const HodApprovalsCard(),
-          const SizedBox(height: 16),
-          const TodayPeriodsCard(),
-          const SizedBox(height: 16),
-          const LeaveCard(),
-          const SizedBox(height: 16),
-          const MyTimetableCard(),
-          const SizedBox(height: 16),
-          const TeacherSummaryCard(),
-          const SizedBox(height: 16),
-          const PhaseRoadmapCard(isAdmin: false),
-        ],
-      ),
+          ),
+        IconButton(
+          tooltip: 'Refresh',
+          icon: const Icon(Icons.refresh),
+          onPressed: () {
+            ref.invalidate(periodsTodayProvider);
+            ref.invalidate(pendingApprovalsProvider);
+          },
+        ),
+      ],
+      child: const PageBody(maxWidth: 900, children: [
+        // Renders itself away unless this teacher is an approver with a
+        // queue, so a plain teacher never sees an empty panel.
+        HodApprovalsCard(),
+        TodayPeriodsCard(),
+      ]),
     );
   }
 }

@@ -7,6 +7,8 @@ import '../core/documents_repository.dart';
 import '../core/templates_repository.dart';
 import '../models/document_template.dart';
 import '../models/extracted_document.dart';
+import '../widgets/shell/app_shell.dart';
+import '../widgets/ui/primitives.dart';
 import 'document_review_screen.dart';
 
 /// Upload admission forms and work through the review queue.
@@ -118,28 +120,26 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
       }
     });
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('AI Document Reader'),
-        actions: [
-          TextButton.icon(
-            onPressed: () => context.push('/templates'),
-            icon: const Icon(Icons.description_outlined, size: 18),
-            label: const Text('Templates'),
-          ),
-          IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              ref.invalidate(documentQueueProvider);
-              ref.invalidate(templatesProvider);
-            },
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
+    return AppShell(
+      title: 'AI Document Reader',
+      subtitle: 'Turn handwritten forms into records',
+      actions: [
+        TextButton.icon(
+          onPressed: () => context.go('/templates'),
+          icon: const Icon(Icons.description_outlined, size: 18),
+          label: const Text('Templates'),
+        ),
+        IconButton(
+          tooltip: 'Refresh',
+          icon: const Icon(Icons.refresh),
+          onPressed: () {
+            ref.invalidate(documentQueueProvider);
+            ref.invalidate(templatesProvider);
+          },
+        ),
+      ],
+      child: PageBody(
+        maxWidth: 900,
         children: [
           _UploadCard(
             busy: _busy,
@@ -175,7 +175,12 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
               ),
             ),
             data: (docs) => docs.isEmpty
-                ? _EmptyQueue()
+                ? const EmptyState(
+                    icon: Icons.inbox_outlined,
+                    title: 'Nothing waiting for review',
+                    message: 'Scanned forms appear here with their extracted '
+                        'fields, ready to check and approve.',
+                  )
                 : Column(
                     children: [
                       for (final d in docs)
@@ -411,20 +416,3 @@ class _QueueTile extends StatelessWidget {
   }
 }
 
-class _EmptyQueue extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 44),
-      alignment: Alignment.center,
-      child: Column(children: [
-        Icon(Icons.inbox_outlined, size: 40, color: theme.colorScheme.outline),
-        const SizedBox(height: 12),
-        Text('Nothing waiting for review',
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-      ]),
-    );
-  }
-}

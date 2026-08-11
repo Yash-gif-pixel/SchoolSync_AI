@@ -6,7 +6,9 @@ import '../core/documents_repository.dart';
 import '../core/school.dart';
 import '../models/document_template.dart';
 import '../models/extracted_document.dart';
+import '../theme/app_theme.dart';
 import '../widgets/review_field_row.dart';
+import '../widgets/ui/primitives.dart';
 
 /// Side-by-side review: the photograph on the left, what the AI read on the
 /// right. Field order, labels and types all come from the template, so a
@@ -187,57 +189,94 @@ class _DocumentReviewScreenState extends ConsumerState<DocumentReviewScreen> {
             ),
       bottomNavigationBar: SafeArea(
         child: Container(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerLow,
-            border: Border(top: BorderSide(color: theme.dividerColor)),
+          padding: const EdgeInsets.all(AppSpace.md),
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            border: Border(top: BorderSide(color: AppColors.border)),
           ),
-          child: Row(children: [
-            if (_error != null)
-              Expanded(
-                child: Row(children: [
-                  Icon(Icons.error_outline, size: 18, color: theme.colorScheme.error),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+          // Wrap so the status text and the buttons stack on a narrow window
+          // instead of the message being crushed to nothing.
+          //
+          // The width cap must come from LayoutBuilder, not a bare constant: a
+          // Wrap hands its children UNBOUNDED width, so a fixed maxWidth of
+          // 620 is happily taken even on a 380px screen, and overflows.
+          child: LayoutBuilder(builder: (context, bar) => Wrap(
+            spacing: AppSpace.md,
+            runSpacing: AppSpace.sm,
+            alignment: WrapAlignment.end,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: bar.maxWidth.clamp(0, 620)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(
+                    (_error ?? blocker) != null
+                        ? Icons.block
+                        : Icons.info_outline,
+                    size: 17,
+                    color: (_error ?? blocker) != null
+                        ? AppColors.danger
+                        : AppColors.textSecondary,
+                  ),
+                  const SizedBox(width: AppSpace.sm),
+                  Flexible(
+                    child: Text(
+                      _error ??
+                          blocker ??
+                          switch (doc.template?.target) {
+                            TemplateTarget.student =>
+                              'These values will be saved as a new student record.',
+                            TemplateTarget.leaveRequest =>
+                              'These values will be saved as a leave request.',
+                            _ =>
+                              'These values will be saved against this document.',
+                          },
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: (_error ?? blocker) != null
+                            ? AppColors.danger
+                            : AppColors.textSecondary,
+                      ),
+                    ),
                   ),
                 ]),
-              )
-            else if (blocker != null)
-              Expanded(
-                child: Row(children: [
-                  Icon(Icons.block, size: 18, color: theme.colorScheme.error),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(blocker)),
-                ]),
-              )
-            else
-              Expanded(
-                child: Text(switch (doc.template?.target) {
-                  TemplateTarget.student =>
-                    'These values will be saved as a new student record.',
-                  TemplateTarget.leaveRequest =>
-                    'These values will be saved as a leave request.',
-                  _ => 'These values will be saved against this document.',
-                }),
               ),
-            const SizedBox(width: 16),
-            TextButton(
-              onPressed: _committing ? null : () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            const SizedBox(width: 8),
-            FilledButton.icon(
-              onPressed: (_committing || blocker != null) ? null : _commit,
-              icon: _committing
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.check, size: 18),
-              label: Text(_committing ? 'Saving…' : _commitLabel),
-            ),
-          ]),
+              // Also constrained: a Wrap only breaks BETWEEN children, so a
+              // single child wider than the line overflows regardless.
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: bar.maxWidth),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  TextButton(
+                    onPressed:
+                        _committing ? null : () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: AppSpace.sm),
+                  Flexible(
+                    child: FilledButton.icon(
+                      onPressed:
+                          (_committing || blocker != null) ? null : _commit,
+                      icon: _committing
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.check, size: 18),
+                      // "Accept & create student" does not fit beside Cancel
+                      // on a phone, so it degrades to the verb alone.
+                      label: Text(
+                        _committing
+                            ? 'Saving…'
+                            : (bar.maxWidth < 460 ? 'Accept' : _commitLabel),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ]),
+              ),
+            ],
+          )),
         ),
       ),
     );
@@ -251,43 +290,40 @@ class _SummaryBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // A Wrap, not a Row: the pills plus the model name are more than a narrow
+    // window can hold on one line, and they should reflow rather than clip.
     return Container(
-      height: 38,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      alignment: Alignment.centerLeft,
-      child: Row(children: [
-        if (doc.errorCount > 0) ...[
-          Icon(Icons.error, size: 16, color: theme.colorScheme.error),
-          const SizedBox(width: 6),
-          Text('${doc.errorCount} must be fixed',
-              style: TextStyle(color: theme.colorScheme.error)),
-          const SizedBox(width: 18),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(
+          AppSpace.xl, 0, AppSpace.xl, AppSpace.md),
+      color: AppColors.surface,
+      child: Wrap(
+        spacing: AppSpace.sm,
+        runSpacing: AppSpace.sm,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          if (doc.errorCount > 0)
+            StatusPill(
+                label: '${doc.errorCount} must be fixed',
+                tone: Tone.danger,
+                icon: Icons.error_outline),
+          if (doc.warningCount > 0)
+            StatusPill(
+                label: '${doc.warningCount} to check',
+                tone: Tone.warning,
+                icon: Icons.warning_amber_rounded),
+          if (doc.errorCount == 0 && doc.warningCount == 0)
+            const StatusPill(
+                label: 'clean extraction',
+                tone: Tone.success,
+                icon: Icons.check_circle_outline),
+          if (doc.confidence != null)
+            Text('avg confidence ${(doc.confidence! * 100).round()}%',
+                style: theme.textTheme.labelSmall),
+          if (doc.model != null)
+            Text(doc.model!, style: theme.textTheme.labelSmall),
         ],
-        if (doc.warningCount > 0) ...[
-          const Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFFB26A00)),
-          const SizedBox(width: 6),
-          Text('${doc.warningCount} to check',
-              style: const TextStyle(color: Color(0xFFB26A00))),
-          const SizedBox(width: 18),
-        ],
-        if (doc.errorCount == 0 && doc.warningCount == 0) ...[
-          Icon(Icons.check_circle, size: 16, color: Colors.green.shade700),
-          const SizedBox(width: 6),
-          const Text('Clean extraction'),
-          const SizedBox(width: 18),
-        ],
-        const Spacer(),
-        if (doc.confidence != null)
-          Text('avg confidence ${(doc.confidence! * 100).round()}%',
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-        if (doc.model != null) ...[
-          const SizedBox(width: 14),
-          Text(doc.model!,
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-        ],
-      ]),
+      ),
     );
   }
 }
@@ -300,25 +336,17 @@ class _SourceImage extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      color: theme.colorScheme.surfaceContainerHighest,
+      color: AppColors.surfaceMuted,
       child: Column(children: [
         if (doc.documentQuality != 'good')
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            color: const Color(0xFFFFF3E0),
-            child: Row(children: [
-              const Icon(Icons.photo_camera_back_outlined,
-                  size: 16, color: Color(0xFFB26A00)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Image quality: ${doc.documentQuality}'
-                  '${doc.qualityNote != null ? ' — ${doc.qualityNote}' : ''}',
-                  style: const TextStyle(color: Color(0xFF7A4A00), fontSize: 12),
-                ),
-              ),
-            ]),
+          Padding(
+            padding: const EdgeInsets.all(AppSpace.md),
+            child: Callout(
+              tone: Tone.warning,
+              icon: Icons.photo_camera_back_outlined,
+              message: 'Image quality: ${doc.documentQuality}',
+              detail: doc.qualityNote,
+            ),
           ),
         Expanded(
           child: doc.imageUrl == null
@@ -354,29 +382,9 @@ class _Banner extends StatelessWidget {
   final ValidationIssue issue;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final err = issue.isError;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: err ? theme.colorScheme.errorContainer : const Color(0xFFFFF3E0),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-            color: err ? theme.colorScheme.error : const Color(0xFFFFCC80)),
-      ),
-      child: Row(children: [
-        Icon(err ? Icons.error_outline : Icons.info_outline,
-            size: 18, color: err ? theme.colorScheme.error : const Color(0xFFB26A00)),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(issue.message),
-            if (issue.suggestion != null)
-              Text(issue.suggestion!, style: theme.textTheme.bodySmall),
-          ]),
-        ),
-      ]),
-    );
-  }
+  Widget build(BuildContext context) => Callout(
+        tone: issue.isError ? Tone.danger : Tone.warning,
+        message: issue.message,
+        detail: issue.suggestion,
+      );
 }

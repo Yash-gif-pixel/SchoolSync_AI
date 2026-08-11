@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/operations_repository.dart';
 import '../models/operations.dart';
 import '../models/timetable.dart' show dayNames;
+import '../widgets/shell/app_shell.dart';
+import '../widgets/ui/primitives.dart';
 
 /// Cover that needs an administrator's decision.
 ///
@@ -55,20 +57,18 @@ class _ActionBoardScreenState extends ConsumerState<ActionBoardScreen> {
     final live = ref.watch(coverChangesProvider);
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Action Board'),
-        actions: [
-          _LiveBadge(connected: !live.isLoading && !live.hasError),
-          IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(actionBoardProvider),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: board.when(
+    return AppShell(
+      title: 'Action Board',
+      subtitle: 'Cover that needs a decision — updates itself',
+      actions: [
+        _LiveBadge(connected: !live.isLoading && !live.hasError),
+        IconButton(
+          tooltip: 'Refresh',
+          icon: const Icon(Icons.refresh),
+          onPressed: () => ref.invalidate(actionBoardProvider),
+        ),
+      ],
+      child: board.when(
         loading: () => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
         error: (e, _) => Center(
           child: Padding(
@@ -79,10 +79,15 @@ class _ActionBoardScreenState extends ConsumerState<ActionBoardScreen> {
         ),
         data: (b) {
           if (b.groups.isEmpty) {
-            return _Empty();
+            return const EmptyState(
+              icon: Icons.inbox_outlined,
+              title: 'Nothing needs your attention',
+              message: 'Approved leave shows up here automatically, with '
+                  'ranked cover suggestions. This page updates itself.',
+            );
           }
-          return ListView(
-            padding: const EdgeInsets.all(20),
+          return PageBody(
+            maxWidth: 1000,
             children: [
               Row(children: [
                 Text('${b.needsAction} periods need cover',
@@ -364,28 +369,3 @@ class _CandidateRow extends StatelessWidget {
   }
 }
 
-class _Empty extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.inbox_outlined, size: 44, color: theme.colorScheme.outline),
-        const SizedBox(height: 14),
-        Text('Nothing needs your attention',
-            style: theme.textTheme.titleMedium),
-        const SizedBox(height: 6),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40),
-          child: Text(
-            'Approved leave shows up here automatically, with ranked cover '
-            'suggestions. This page updates itself.',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-          ),
-        ),
-      ]),
-    );
-  }
-}

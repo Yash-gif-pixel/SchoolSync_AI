@@ -23,11 +23,20 @@ class CurrentUser:
     full_name: str
     department_id: str | None
     is_approver: bool
+    is_vice_principal: bool
+    is_principal: bool
     access_token: str
 
     @property
     def is_admin(self) -> bool:
         return self.role == "admin"
+
+    @property
+    def reviews_hod_leave(self) -> bool:
+        """A head of department cannot approve their own leave, and nobody
+        inside their department outranks them. The Vice Principal is who
+        that request is meant for."""
+        return self.is_vice_principal or self.is_admin
 
 
 async def get_current_user(
@@ -51,7 +60,8 @@ async def get_current_user(
     prof = (
         admin()
         .table("profiles")
-        .select("full_name, role, department_id, is_approver")
+        .select("full_name, role, department_id, is_approver, is_vice_principal, "
+        "is_principal")
         .eq("id", uid)
         .maybe_single()
         .execute()
@@ -70,6 +80,8 @@ async def get_current_user(
         full_name=p["full_name"],
         department_id=p.get("department_id"),
         is_approver=bool(p.get("is_approver")),
+        is_vice_principal=bool(p.get("is_vice_principal")),
+        is_principal=bool(p.get("is_principal")),
         access_token=token,
     )
 

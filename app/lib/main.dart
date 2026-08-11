@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/config.dart';
 import 'router.dart';
+import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,20 +25,15 @@ class SmartSchoolApp extends ConsumerWidget {
     final router = ref.watch(routerProvider);
 
     return MaterialApp.router(
-      title: 'Smart School',
+      title: 'SchoolSync AI',
       debugShowCheckedModeBanner: false,
       routerConfig: router,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B5E9C)),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1B5E9C),
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
+      // One theme, deliberately. A school administrator uses this in a bright
+      // office and often on a projector, so the light palette is the design
+      // rather than a mode — a dark variant would be a second design to keep
+      // consistent for no benefit here.
+      theme: buildAppTheme(),
+      themeMode: ThemeMode.light,
     );
   }
 }

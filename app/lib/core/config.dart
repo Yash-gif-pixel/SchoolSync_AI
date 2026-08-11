@@ -24,4 +24,20 @@ class AppConfig {
     'API_BASE_URL',
     defaultValue: 'http://127.0.0.1:8000',
   );
+
+  /// Where this app is being served from, for building links that get pasted
+  /// elsewhere — invite links, mainly.
+  ///
+  /// Read at runtime rather than baked in, so a link generated on the deployed
+  /// host does not tell the recipient to visit localhost. `Uri.base.origin`
+  /// alone is not safe: it throws a StateError on any non-http scheme, which
+  /// is what the test VM (`file:`) and a desktop build both are.
+  static String get appOrigin {
+    final base = Uri.base;
+    if (base.scheme == 'http' || base.scheme == 'https') return base.origin;
+    return const String.fromEnvironment(
+      'APP_BASE_URL',
+      defaultValue: 'http://127.0.0.1:5000',
+    );
+  }
 }

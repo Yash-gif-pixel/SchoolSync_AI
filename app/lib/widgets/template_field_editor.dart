@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/document_template.dart';
+import '../theme/app_theme.dart';
 
 /// One row of the template editor: what to extract, how to read it, and where
 /// it lands. The type is the important control — it decides which validation
@@ -88,67 +89,73 @@ class _TemplateFieldEditorState extends State<TemplateFieldEditor> {
     final f = widget.field;
     final ro = widget.readOnly;
 
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 10),
-      color: theme.colorScheme.surfaceContainerLow,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-        child: Column(children: [
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 14, right: 10),
-              child: Text('${widget.index + 1}',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-            ),
-            Expanded(
-              flex: 3,
-              child: TextField(
-                controller: _label,
-                enabled: !ro,
-                onChanged: _onLabelChanged,
-                decoration: const InputDecoration(
-                  isDense: true,
-                  labelText: 'Label on the form',
-                  border: OutlineInputBorder(),
-                ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpace.sm),
+      padding: const EdgeInsets.fromLTRB(
+          AppSpace.md, AppSpace.md, AppSpace.sm, AppSpace.md),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(children: [
+          // Label and type side by side is only readable above ~520; below
+          // that they stack, rather than each being squeezed to nothing.
+          LayoutBuilder(builder: (context, constraints) {
+            final label = TextField(
+              controller: _label,
+              enabled: !ro,
+              onChanged: _onLabelChanged,
+              decoration: const InputDecoration(
+                labelText: 'Label on the form',
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              flex: 2,
-              child: DropdownButtonFormField<FieldType>(
-                initialValue: f.type,
-                decoration: const InputDecoration(
-                  isDense: true,
-                  labelText: 'Type',
-                  border: OutlineInputBorder(),
-                ),
-                items: [
-                  for (final t in FieldType.values)
-                    DropdownMenuItem(value: t, child: Text(t.label)),
-                ],
-                onChanged: ro
-                    ? null
-                    : (v) {
-                        setState(() {
-                          f.type = v!;
-                          if (v == FieldType.choice) _expanded = true;
-                        });
-                        widget.onChanged();
-                      },
+            );
+            final type = DropdownButtonFormField<FieldType>(
+              initialValue: f.type,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Type'),
+              items: [
+                for (final t in FieldType.values)
+                  DropdownMenuItem(value: t, child: Text(t.label)),
+              ],
+              onChanged: ro
+                  ? null
+                  : (v) {
+                      setState(() {
+                        f.type = v!;
+                        if (v == FieldType.choice) _expanded = true;
+                      });
+                      widget.onChanged();
+                    },
+            );
+            final more = IconButton(
+              tooltip: _expanded ? 'Fewer options' : 'More options',
+              icon: Icon(_expanded ? Icons.expand_less : Icons.tune, size: 18),
+              onPressed: () => setState(() => _expanded = !_expanded),
+            );
+
+            if (constraints.maxWidth < 520) {
+              return Column(children: [
+                Row(children: [
+                  Expanded(child: label),
+                  more,
+                ]),
+                const SizedBox(height: AppSpace.sm),
+                type,
+              ]);
+            }
+            return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 16, right: AppSpace.sm),
+                child: Text('${widget.index + 1}',
+                    style: theme.textTheme.labelSmall),
               ),
-            ),
-            const SizedBox(width: 6),
-            Column(children: [
-              IconButton(
-                tooltip: _expanded ? 'Fewer options' : 'More options',
-                icon: Icon(_expanded ? Icons.expand_less : Icons.tune, size: 18),
-                onPressed: () => setState(() => _expanded = !_expanded),
-              ),
-            ]),
-          ]),
+              Expanded(flex: 3, child: label),
+              const SizedBox(width: AppSpace.sm),
+              Expanded(flex: 2, child: type),
+              more,
+            ]);
+          }),
           const SizedBox(height: 6),
           Row(children: [
             const SizedBox(width: 22),
@@ -265,8 +272,7 @@ class _TemplateFieldEditorState extends State<TemplateFieldEditor> {
               ),
             ]),
           ],
-        ]),
-      ),
+      ]),
     );
   }
 }

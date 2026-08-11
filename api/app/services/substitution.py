@@ -55,6 +55,7 @@ def find_substitutes(
     timetable: list[dict],
     teachers: list[dict],
     other_absences: dict[dt.date, set[str]],
+    event_commitments: dict[dt.date, dict[str, str]] | None = None,
     max_per_period: int = 3,
 ) -> list[dict]:
     """Suggestions for every period the absent teacher would have taught.
@@ -62,7 +63,11 @@ def find_substitutes(
     `timetable` rows need: entry_id, teacher_id, class_name, subject_name,
     department_id, day_of_week, slot_index, slot_id.
     `other_absences` maps a date to the teachers already away that day.
+    `event_commitments` maps a date to {teacher_id: event name} — somebody
+    rehearsing for Annual Day is in the building but is not available to
+    cover, and suggesting them is worse than admitting there is no cover.
     """
+    events = event_commitments or {}
     teacher_by_id = {t["id"]: t for t in teachers}
     absent = teacher_by_id.get(absent_teacher_id, {})
     absent_dept = absent.get("department_id")
@@ -81,7 +86,12 @@ def find_substitutes(
 
     for date in dates_in_range(from_date, to_date):
         dow = date.isoweekday()
-        away_today = other_absences.get(date, set()) | {absent_teacher_id}
+        on_duty_today = events.get(date, {})
+        away_today = (
+            other_absences.get(date, set())
+            | set(on_duty_today)
+            | {absent_teacher_id}
+        )
 
         for period in [r for r in mine if r["day_of_week"] == dow]:
             candidates: list[Candidate] = []
@@ -118,6 +128,17 @@ def find_substitutes(
             top = candidates[:max_per_period]
 
             if not top:
+                # Say which of the two reasons it is. "No teacher is free"
+                # sends an admin hunting through the timetable; "eleven are at
+                # Annual Day" tells them what to actually do about it.
+                why = "No teacher is free this period."
+                if on_duty_today:
+                    names = sorted(set(on_duty_today.values()))
+                    why = (
+                        f"No teacher is free this period — "
+                        f"{len(on_duty_today)} are committed to "
+                        f"{' and '.join(names)}."
+                    )
                 suggestions.append({
                     "date": date.isoformat(),
                     "timetable_entry_id": period["entry_id"],
@@ -127,7 +148,7 @@ def find_substitutes(
                     "day_of_week": dow,
                     "substitute_teacher_id": None,
                     "rank": None,
-                    "rationale": "No teacher is free this period.",
+                    "rationale": why,
                     "no_cover": True,
                 })
                 continue

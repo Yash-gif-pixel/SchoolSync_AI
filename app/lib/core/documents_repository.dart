@@ -6,6 +6,7 @@ import 'package:http_parser/http_parser.dart' show MediaType;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/extracted_document.dart';
+import 'auth_controller.dart';
 import 'config.dart';
 
 class DocumentsRepository {
@@ -128,5 +129,6 @@ final documentsRepositoryProvider =
 /// The review queue on the admin dashboard.
 final documentQueueProvider =
     FutureProvider<List<ExtractedDocument>>((ref) async {
+  ref.watch(currentUserIdProvider);
   return ref.read(documentsRepositoryProvider).list();
 });

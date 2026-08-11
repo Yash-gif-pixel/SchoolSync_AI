@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../core/dates.dart';
 import '../models/document_template.dart';
 import '../models/extracted_document.dart';
+import '../theme/app_theme.dart';
+import 'ui/primitives.dart';
 
 /// One field in the review panel, described by the template and filled by the
 /// extractor.
@@ -31,8 +33,6 @@ class ReviewFieldRow extends StatelessWidget {
   final List<ValidationIssue> issues;
   final VoidCallback onChanged;
 
-  static const _amber = Color(0xFFB26A00);
-  static const _amberBg = Color(0xFFFFF8E1);
   static const _months = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December',
@@ -47,142 +47,154 @@ class ReviewFieldRow extends StatelessWidget {
     final hasWarning = issues.any((i) => !i.isError);
     final state = extracted.state(hasIssue: hasError || hasWarning);
 
-    final (Color accent, Color? bg, String badge) = switch (state) {
-      FieldState.ok => (Colors.green.shade600, null, ''),
-      FieldState.review => (
-          hasError ? theme.colorScheme.error : _amber,
-          hasError ? theme.colorScheme.errorContainer.withValues(alpha: 0.35) : _amberBg,
-          hasError ? 'must fix' : 'check this',
-        ),
-      FieldState.illegible => (
-          theme.colorScheme.error,
-          theme.colorScheme.errorContainer.withValues(alpha: 0.35),
-          'unreadable',
-        ),
-      FieldState.absent => (theme.colorScheme.outline, null, 'not on form'),
+    final (Tone tone, String badge) = switch (state) {
+      FieldState.ok => (Tone.success, ''),
+      FieldState.review =>
+        (hasError ? Tone.danger : Tone.warning, hasError ? 'must fix' : 'check this'),
+      FieldState.illegible => (Tone.danger, 'unreadable'),
+      FieldState.absent => (Tone.neutral, 'not on form'),
     };
 
+    // Only tint the row when it needs a human. A page where every field is
+    // coloured tells the reviewer nothing about where to look.
+    final needsAttention =
+        state == FieldState.review || state == FieldState.illegible;
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      margin: const EdgeInsets.only(bottom: AppSpace.md),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border(left: BorderSide(color: accent, width: 3)),
+        color: needsAttention ? tone.bg : AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(
+          color: needsAttention
+              ? tone.fg.withValues(alpha: 0.3)
+              : AppColors.border,
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            Flexible(
-              child: Text(spec.label,
-                  style: theme.textTheme.labelLarge
-                      ?.copyWith(fontWeight: FontWeight.w600)),
-            ),
-            if (spec.required)
-              Text(' *', style: TextStyle(color: theme.colorScheme.error)),
-            const Spacer(),
-            if (badge.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(20),
+      child: Stack(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpace.lg, AppSpace.md, AppSpace.md, AppSpace.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Flexible(
+                  child: Text(spec.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge),
                 ),
-                child: Text(badge,
-                    style: theme.textTheme.labelSmall?.copyWith(color: accent)),
-              ),
-            if (state == FieldState.ok) ...[
-              Icon(Icons.check_circle, size: 15, color: accent),
-              const SizedBox(width: 4),
-              Text('${(extracted.confidence * 100).round()}%',
-                  style: theme.textTheme.labelSmall
-                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                if (spec.required)
+                  const Text(' *', style: TextStyle(color: AppColors.danger)),
+                const Spacer(),
+                if (badge.isNotEmpty)
+                  StatusPill(label: badge, tone: tone)
+                else
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.check_circle, size: 14, color: tone.fg),
+                    const SizedBox(width: 4),
+                    Text('${(extracted.confidence * 100).round()}%',
+                        style: theme.textTheme.labelSmall),
+                  ]),
+              ]),
+              const SizedBox(height: AppSpace.sm),
+
+              if (spec.type == FieldType.choice &&
+                  (spec.options?.isNotEmpty ?? false))
+                _ChoiceInput(
+                  options: spec.options!,
+                  controller: controller,
+                  onChanged: onChanged,
+                )
+              else
+                TextField(
+                  controller: controller,
+                  onChanged: (_) => onChanged(),
+                  maxLines: spec.type == FieldType.longtext ? 2 : 1,
+                  decoration: InputDecoration(
+                    suffixText: _isDate ? 'dd/mm/yyyy' : null,
+                    suffixStyle: theme.textTheme.labelSmall,
+                    hintText: switch (state) {
+                      FieldState.absent => _isDate
+                          ? 'Not on the form — dd/mm/yyyy'
+                          : 'Not on the form — type it in if you have it',
+                      FieldState.illegible => _isDate
+                          ? 'Could not be read — dd/mm/yyyy'
+                          : 'Could not be read — type it in',
+                      _ => null,
+                    },
+                  ),
+                ),
+
+              // Spell the date out. "10/03/2014" and "03/10/2014" look almost
+              // identical at a glance; "10 March 2014" cannot be misread.
+              if (_isDate) _DateEcho(controller: controller),
+
+              // What the paper actually says, when it differs from the value.
+              if (extracted.rawText != null &&
+                  extracted.rawText!.trim().isNotEmpty &&
+                  extracted.rawText != extracted.value) ...[
+                const SizedBox(height: 6),
+                Row(children: [
+                  const Icon(Icons.edit_note,
+                      size: 14, color: AppColors.textTertiary),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text('on the form: "${extracted.rawText}"',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall
+                            ?.copyWith(fontStyle: FontStyle.italic)),
+                  ),
+                ]),
+              ],
+
+              for (final issue in issues) ...[
+                const SizedBox(height: 6),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Icon(
+                    issue.isError
+                        ? Icons.error_outline
+                        : Icons.warning_amber_rounded,
+                    size: 14,
+                    color: issue.isError ? AppColors.danger : AppColors.warning,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(issue.message,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                                color: issue.isError
+                                    ? AppColors.danger
+                                    : AppColors.warning)),
+                        if (issue.suggestion != null)
+                          Text(issue.suggestion!,
+                              style: theme.textTheme.labelSmall),
+                      ],
+                    ),
+                  ),
+                ]),
+              ],
             ],
-          ]),
-          const SizedBox(height: 8),
-          if (spec.type == FieldType.choice && (spec.options?.isNotEmpty ?? false))
-            _ChoiceInput(
-              options: spec.options!,
-              controller: controller,
-              onChanged: onChanged,
-            )
-          else
-            TextField(
-              controller: controller,
-              onChanged: (_) => onChanged(),
-              maxLines: spec.type == FieldType.longtext ? 2 : 1,
-              decoration: InputDecoration(
-                isDense: true,
-                filled: true,
-                fillColor: theme.colorScheme.surface,
-                border: const OutlineInputBorder(),
-                suffixText: _isDate ? 'dd/mm/yyyy' : null,
-                suffixStyle: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                hintText: switch (state) {
-                  FieldState.absent => _isDate
-                      ? 'Not on the form — dd/mm/yyyy'
-                      : 'Not on the form — type it in if you have it',
-                  FieldState.illegible => _isDate
-                      ? 'Could not be read — dd/mm/yyyy'
-                      : 'Could not be read — type it in',
-                  _ => null,
-                },
-              ),
-            ),
-          // Spell the date out. "10/03/2014" and "03/10/2014" look almost
-          // identical at a glance; "10 March 2014" cannot be misread.
-          if (_isDate) _DateEcho(controller: controller),
-          // What the paper actually says, when it differs from the value.
-          if (extracted.rawText != null &&
-              extracted.rawText!.trim().isNotEmpty &&
-              extracted.rawText != extracted.value) ...[
-            const SizedBox(height: 6),
-            Row(children: [
-              Icon(Icons.edit_note, size: 14, color: theme.colorScheme.onSurfaceVariant),
-              const SizedBox(width: 5),
-              Expanded(
-                child: Text('on the form: "${extracted.rawText}"',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                        fontStyle: FontStyle.italic)),
-              ),
-            ]),
-          ],
-          for (final issue in issues) ...[
-            const SizedBox(height: 6),
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Icon(
-                issue.isError ? Icons.error_outline : Icons.warning_amber_rounded,
-                size: 14,
-                color: issue.isError ? theme.colorScheme.error : _amber,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(issue.message,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                            color:
-                                issue.isError ? theme.colorScheme.error : _amber)),
-                    if (issue.suggestion != null)
-                      Text(issue.suggestion!,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant)),
-                  ],
-                ),
-              ),
-            ]),
-          ],
-        ],
-      ),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 3,
+          child: ColoredBox(color: tone.fg),
+        ),
+      ]),
     );
   }
 }
 
-/// Choice fields get buttons rather than free text, so a reviewer can't
+/// Choice fields get buttons rather than free text, so a reviewer cannot
 /// reintroduce the very mismatch the template exists to prevent.
 class _ChoiceInput extends StatelessWidget {
   const _ChoiceInput({
@@ -200,11 +212,13 @@ class _ChoiceInput extends StatelessWidget {
     final current = controller.text.trim();
     final known = options.contains(current);
 
-    return Wrap(spacing: 8, runSpacing: 8, children: [
+    return Wrap(spacing: AppSpace.sm, runSpacing: AppSpace.sm, children: [
       for (final o in options)
         ChoiceChip(
           label: Text(o),
           selected: current == o,
+          showCheckmark: false,
+          selectedColor: AppColors.brandTint,
           onSelected: (_) {
             controller.text = o;
             onChanged();
@@ -212,8 +226,8 @@ class _ChoiceInput extends StatelessWidget {
         ),
       if (current.isNotEmpty && !known)
         InputChip(
-          avatar: Icon(Icons.warning_amber_rounded,
-              size: 16, color: Theme.of(context).colorScheme.error),
+          avatar: const Icon(Icons.warning_amber_rounded,
+              size: 16, color: AppColors.danger),
           label: Text('"$current"'),
           onDeleted: () {
             controller.text = '';
@@ -239,11 +253,11 @@ class _DateEcho extends StatelessWidget {
       return Padding(
         padding: const EdgeInsets.only(top: 6),
         child: Row(children: [
-          Icon(Icons.error_outline, size: 14, color: theme.colorScheme.error),
+          const Icon(Icons.error_outline, size: 14, color: AppColors.danger),
           const SizedBox(width: 5),
           Text('Not a valid date',
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.error)),
+              style: theme.textTheme.labelSmall
+                  ?.copyWith(color: AppColors.danger)),
         ]),
       );
     }
@@ -251,11 +265,11 @@ class _DateEcho extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 6),
       child: Row(children: [
-        Icon(Icons.event_available, size: 14, color: theme.colorScheme.onSurfaceVariant),
+        const Icon(Icons.event_available,
+            size: 14, color: AppColors.textTertiary),
         const SizedBox(width: 5),
         Text('${d.day} ${ReviewFieldRow._months[d.month - 1]} ${d.year}',
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+            style: theme.textTheme.labelSmall),
       ]),
     );
   }

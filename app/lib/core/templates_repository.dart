@@ -6,6 +6,7 @@ import 'package:http_parser/http_parser.dart' show MediaType;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/document_template.dart';
+import 'auth_controller.dart';
 import 'config.dart';
 
 /// What the AI proposes after looking at a blank form. A suggestion for a
@@ -147,5 +148,6 @@ final templatesRepositoryProvider =
     Provider<TemplatesRepository>((_) => const TemplatesRepository());
 
 final templatesProvider = FutureProvider<List<DocumentTemplate>>((ref) async {
+  ref.watch(currentUserIdProvider);
   return ref.read(templatesRepositoryProvider).list();
 });

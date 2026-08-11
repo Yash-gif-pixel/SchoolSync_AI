@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../core/api_client.dart';
 import '../core/auth_controller.dart';
+import '../core/documents_repository.dart';
+import '../core/forecast_repository.dart';
+import '../core/operations_repository.dart';
+import '../core/timetable_repository.dart';
+import '../theme/app_theme.dart';
 import '../widgets/action_board_card.dart';
-import '../widgets/backend_status_card.dart';
 import '../widgets/document_queue_card.dart';
 import '../widgets/forecast_card.dart';
-import '../widgets/phase_roadmap_card.dart';
+import '../widgets/shell/app_shell.dart';
 import '../widgets/timetable_summary_card.dart';
-import '../widgets/user_chip.dart';
+import '../widgets/ui/primitives.dart';
 
 class AdminDashboard extends ConsumerWidget {
   const AdminDashboard({super.key});
@@ -16,40 +22,123 @@ class AdminDashboard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(authControllerProvider).profile;
-    final theme = Theme.of(context);
+    final wide = MediaQuery.sizeOf(context).width >= 1000;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Admin Dashboard'),
-        actions: const [UserChip()],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          Text('Welcome, ${profile?.fullName ?? ''}',
-              style: theme.textTheme.headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 4),
-          Text('Macro view — full visibility across the school',
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-          const SizedBox(height: 20),
-          // First on the page: it is the only card that tells the admin
-          // something needs doing right now.
-          const ActionBoardCard(),
-          const SizedBox(height: 16),
-          // Second: what is coming, after what is already here.
-          const ForecastSummaryCard(),
-          const SizedBox(height: 16),
+    return AppShell(
+      title: 'Good day, ${profile?.fullName.split(' ').first ?? ''}',
+      subtitle: 'Everything that needs you, in one place',
+      actions: [
+        IconButton(
+          tooltip: 'Refresh everything',
+          icon: const Icon(Icons.refresh),
+          onPressed: () {
+            ref.invalidate(actionBoardProvider);
+            ref.invalidate(staffingForecastProvider);
+            ref.invalidate(documentQueueProvider);
+            ref.invalidate(activeTimetableProvider);
+            ref.invalidate(backendHealthProvider);
+          },
+        ),
+      ],
+      child: PageBody(children: [
+        const _SchoolSummary(),
+        gap16,
+
+        // Needs attention now, then what is coming. Everything else after.
+        const ActionBoardCard(),
+        gap16,
+        const ForecastSummaryCard(),
+        gap16,
+
+        if (wide)
+          const IntrinsicHeight(
+            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Expanded(child: DocumentQueueCard()),
+              SizedBox(width: AppSpace.lg),
+              Expanded(child: TimetableSummaryCard()),
+            ]),
+          )
+        else ...[
           const DocumentQueueCard(),
-          const SizedBox(height: 16),
+          gap16,
           const TimetableSummaryCard(),
-          const SizedBox(height: 16),
-          const BackendStatusCard(),
-          const SizedBox(height: 16),
-          const PhaseRoadmapCard(isAdmin: true),
         ],
+      ]),
+    );
+  }
+}
+
+/// The one-line answer to "how big is this school", which also proves the
+/// whole stack is live.
+class _SchoolSummary extends ConsumerWidget {
+  const _SchoolSummary();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final health = ref.watch(backendHealthProvider);
+
+    return health.when(
+      loading: () => const SectionCard(
+        child: SizedBox(
+          height: 52,
+          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        ),
       ),
+      error: (e, _) => Callout(
+        tone: Tone.danger,
+        message: 'Cannot reach the API',
+        detail: 'Is the backend running? $e',
+      ),
+      data: (data) {
+        final counts = (data['row_counts'] as Map).cast<String, dynamic>();
+        String n(String k) => '${counts[k] ?? '—'}';
+
+        return SectionCard(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpace.xl, vertical: AppSpace.lg),
+          child: Wrap(
+            spacing: AppSpace.md,
+            runSpacing: AppSpace.md,
+            children: [
+              // The first two open a directory. The rest are counts with
+              // nowhere useful to go, so they carry a hint saying what they
+              // are instead of a chevron promising a screen that isn't there.
+              StatTile(
+                  value: n('students'),
+                  label: 'Students',
+                  hint: 'browse by class',
+                  icon: Icons.groups_outlined,
+                  width: 150,
+                  onTap: () => context.go('/students')),
+              StatTile(
+                  value: n('profiles'),
+                  label: 'Staff',
+                  hint: 'browse by department',
+                  icon: Icons.badge_outlined,
+                  width: 150,
+                  onTap: () => context.go('/staff')),
+              StatTile(
+                  value: n('classes'),
+                  label: 'Classes',
+                  hint: 'sections, 1A to 10D',
+                  icon: Icons.meeting_room_outlined,
+                  width: 150),
+              StatTile(
+                  value: n('teaching_assignments'),
+                  label: 'Assignments',
+                  hint: 'who teaches what',
+                  icon: Icons.assignment_outlined,
+                  width: 150),
+              StatTile(
+                  value: n('attendance'),
+                  label: 'Attendance marks',
+                  hint: 'records to date',
+                  icon: Icons.how_to_reg_outlined,
+                  width: 150),
+            ],
+          ),
+        );
+      },
     );
   }
 }

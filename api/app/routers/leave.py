@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from ..auth import CurrentUser, get_current_user, require_admin
 from ..db import admin
+from ..services.leave_rules import describe_clash, overlapping_leave
 from ..services.substitution import dates_in_range, find_substitutes
 
 router = APIRouter(prefix="/leave", tags=["leave"])
@@ -105,6 +106,45 @@ def _absences_by_date(start: dt.date, end: dt.date,
     return out
 
 
+def _event_commitments(
+    start: dt.date, end: dt.date
+) -> dict[dt.date, dict[str, str]]:
+    """Who is tied up by a school event on each day in the window.
+
+    Annual Day does not appear on anyone's timetable, so without this the
+    matcher happily offers up eleven teachers who are all in the main hall.
+    """
+    events = (admin().table("calendar_events")
+              .select("id, name, date, ends_on")
+              .lte("date", end.isoformat())
+              .execute().data or [])
+
+    running = []
+    for e in events:
+        e_start = dt.date.fromisoformat(e["date"])
+        e_end = dt.date.fromisoformat(e.get("ends_on") or e["date"])
+        if e_end >= start:
+            running.append((e, e_start, e_end))
+
+    out: dict[dt.date, dict[str, str]] = defaultdict(dict)
+    if not running:
+        return out
+
+    links = (admin().table("event_teachers")
+             .select("event_id, teacher_id")
+             .in_("event_id", [e["id"] for e, _, _ in running])
+             .execute().data or [])
+    by_event: dict[str, list[str]] = defaultdict(list)
+    for link in links:
+        by_event[link["event_id"]].append(link["teacher_id"])
+
+    for e, e_start, e_end in running:
+        for d in dates_in_range(max(e_start, start), min(e_end, end)):
+            for tid in by_event.get(e["id"], []):
+                out[d][tid] = e["name"]
+    return out
+
+
 def _run_matcher(leave: dict) -> list[dict]:
     """Generate and persist substitution suggestions for an approved leave."""
     start = dt.date.fromisoformat(leave["from_date"])
@@ -125,6 +165,7 @@ def _run_matcher(leave: dict) -> list[dict]:
         timetable=timetable,
         teachers=teachers,
         other_absences=_absences_by_date(start, end, exclude_id=leave["id"]),
+        event_commitments=_event_commitments(start, end),
     )
 
     # Replace any earlier run for this leave so re-approval is idempotent.
@@ -156,6 +197,15 @@ def create_leave(
     if teacher_id != user.id and not user.is_admin:
         raise HTTPException(403, "You can only file leave for yourself.")
 
+    # Double-booked leave would have the substitution matcher arranging cover
+    # for the same periods twice, so a clash is refused rather than merged.
+    clashes = overlapping_leave(
+        admin(), teacher_id, payload.from_date, payload.to_date
+    )
+    if clashes:
+        subject = "You have" if teacher_id == user.id else "This teacher has"
+        raise HTTPException(409, describe_clash(clashes[0], subject=subject))
+
     row = admin().table("leave_requests").insert({
         "teacher_id": teacher_id,
         "from_date": payload.from_date.isoformat(),
@@ -178,22 +228,41 @@ def my_leave(user: CurrentUser = Depends(get_current_user)) -> list[dict]:
 
 @router.get("/pending")
 def pending_for_me(user: CurrentUser = Depends(get_current_user)) -> list[dict]:
-    """An HOD sees their department; an admin sees everything."""
-    if not (user.is_approver or user.is_admin):
+    """Who reviews what:
+
+      admin           everything
+      vice principal  the heads of department
+      HOD             their own department, heads excepted
+      teacher         nothing
+
+    The exception in the HOD line matters. Without it a request from one head
+    would appear on every other head's desk in the same department, and a head
+    who is the only approver there would see their own.
+    """
+    if not (user.is_approver or user.is_admin or user.is_vice_principal):
         return []
 
     q = (admin().table("leave_requests")
          .select("*, teacher:teacher_id(id, full_name, department_id, "
-                 "  departments(name))")
+                 "  is_approver, departments(name))")
          .eq("status", "pending_incharge")
          .order("created_at", desc=True).limit(100))
     rows = q.execute().data
 
     if user.is_admin:
         return rows
+
+    if user.is_vice_principal:
+        return [
+            r for r in rows
+            if (r.get("teacher") or {}).get("is_approver")
+            and (r.get("teacher") or {}).get("id") != user.id
+        ]
+
     return [
         r for r in rows
         if (r.get("teacher") or {}).get("department_id") == user.department_id
+        and not (r.get("teacher") or {}).get("is_approver")
     ]
 
 
@@ -204,7 +273,8 @@ def review_leave(
     user: CurrentUser = Depends(get_current_user),
 ) -> dict:
     res = (admin().table("leave_requests")
-           .select("*, teacher:teacher_id(id, full_name, department_id)")
+           .select("*, teacher:teacher_id(id, full_name, department_id, "
+                   "  is_approver)")
            .eq("id", leave_id).maybe_single().execute())
     if not res or not res.data:
         raise HTTPException(404, "Leave request not found")
@@ -214,16 +284,47 @@ def review_leave(
         raise HTTPException(409, f"This request is already {leave['status']}.")
 
     teacher = leave.get("teacher") or {}
-    may_review = user.is_admin or (
-        user.is_approver and teacher.get("department_id") == user.department_id
-    )
-    if not may_review:
-        raise HTTPException(
-            403, "Only an admin, or the head of this teacher's department, "
-                 "can review it."
+    requester_is_hod = bool(teacher.get("is_approver"))
+
+    # A head of department's own request goes up, not sideways. Their peers in
+    # the department do not outrank them, so it is the Vice Principal's call.
+    if requester_is_hod:
+        may_review = user.reviews_hod_leave
+        refusal = ("A head of department's leave is reviewed by the Vice "
+                   "Principal.")
+    else:
+        may_review = user.is_admin or user.is_vice_principal or (
+            user.is_approver
+            and teacher.get("department_id") == user.department_id
         )
+        refusal = ("Only an admin, the Vice Principal, or the head of this "
+                   "teacher's department can review it.")
+
+    if not may_review:
+        raise HTTPException(403, refusal)
+
     if teacher.get("id") == user.id and not user.is_admin:
         raise HTTPException(403, "You cannot approve your own leave.")
+
+    # Creation already refuses a clash, but a pair of requests filed before
+    # that check existed — or approved concurrently — must not both go live.
+    # This is the guard that actually protects the substitution matcher.
+    if payload.approve:
+        clashes = [
+            c for c in overlapping_leave(
+                admin(),
+                leave["teacher_id"],
+                dt.date.fromisoformat(leave["from_date"]),
+                dt.date.fromisoformat(leave["to_date"]),
+                exclude_id=leave_id,
+            )
+            if c["status"] == "approved"
+        ]
+        if clashes:
+            raise HTTPException(409, describe_clash(
+                clashes[0],
+                subject=f"{teacher.get('full_name', 'This teacher')} has",
+            ))
 
     new_status = "approved" if payload.approve else "rejected"
     updated = admin().table("leave_requests").update({

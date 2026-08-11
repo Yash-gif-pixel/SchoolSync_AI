@@ -342,11 +342,11 @@ def seed_staff(ref: dict) -> dict:
     # one admin
     admin_email = "admin@school.test"
     used_emails.add(admin_email)
-    admin_id = create_auth_user(admin_email, "Principal Sharma", "admin")
+    admin_id = create_auth_user(admin_email, "Latha Krishnan", "admin")
     profiles.append(
         {
             "id": admin_id,
-            "full_name": "Principal Sharma",
+            "full_name": "Latha Krishnan",
             "employee_code": "ADM001",
             "role": "admin",
             "department_id": None,
@@ -505,7 +505,13 @@ def seed_leave_history(staff: dict) -> list[dict]:
         "Personal work", "Child unwell", "Travel", "Viral fever",
     ]
 
+    # Dates each teacher is already booked off. Nobody can be on two
+    # overlapping leaves at once, and letting the generator produce them would
+    # have the substitution matcher covering the same periods twice.
+    booked: dict[str, set[dt.date]] = defaultdict(set)
+
     rows = []
+    skipped = 0
     for day in school_days(start, today - dt.timedelta(days=1)):
         base = 0.035
         if day.weekday() == 0:      # Monday
@@ -518,23 +524,32 @@ def seed_leave_history(staff: dict) -> list[dict]:
             base *= 3.0
 
         for t in teachers:
-            if random.random() < base:
-                span = random.choices([1, 1, 1, 2, 3], k=1)[0]
-                rows.append(
-                    {
-                        "teacher_id": t["id"],
-                        "from_date": str(day),
-                        "to_date": str(day + dt.timedelta(days=span - 1)),
-                        "reason": random.choice(reasons),
-                        "status": "approved",
-                        "reviewed_by": hod_by_dept.get(t["department_id"]),
-                        "reviewed_at": f"{day}T07:30:00+00:00",
-                    }
-                )
+            if random.random() >= base:
+                continue
+            span = random.choices([1, 1, 1, 2, 3], k=1)[0]
+            end = day + dt.timedelta(days=span - 1)
+            covered = {day + dt.timedelta(days=i) for i in range(span)}
+            if covered & booked[t["id"]]:
+                skipped += 1
+                continue
+            booked[t["id"]] |= covered
+            rows.append(
+                {
+                    "teacher_id": t["id"],
+                    "from_date": str(day),
+                    "to_date": str(end),
+                    "reason": random.choice(reasons),
+                    "status": "approved",
+                    "reviewed_by": hod_by_dept.get(t["department_id"]),
+                    "reviewed_at": f"{day}T07:30:00+00:00",
+                }
+            )
 
     out = insert("leave_requests", rows)
     log(f"{len(out)} approved leave requests over 90 days")
     log(f"flu week seeded {flu_start} -> {flu_end} (3x baseline)")
+    if skipped:
+        log(f"{skipped} skipped — would have overlapped that teacher's own leave")
     return out
 
 

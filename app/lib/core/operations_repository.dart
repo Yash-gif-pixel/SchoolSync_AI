@@ -182,18 +182,26 @@ final coverChangesProvider = StreamProvider<int>((ref) {
 });
 
 // ---------------------------------------------------------------- providers
+//
+// Anything user-scoped watches currentUserIdProvider. These providers are not
+// autoDispose, so without it they keep serving the previous account's data
+// after a sign-out and sign-in in the same tab.
+
 final periodsTodayProvider = FutureProvider<List<TodayPeriod>>((ref) async {
+  ref.watch(currentUserIdProvider);
   return ref.read(operationsRepositoryProvider).periodsToday();
 });
 
 final myLeaveProvider = FutureProvider<List<LeaveRequest>>((ref) async {
+  ref.watch(currentUserIdProvider);
   ref.watch(coverChangesProvider);
   return ref.read(operationsRepositoryProvider).myLeave();
 });
 
 final pendingApprovalsProvider = FutureProvider<List<LeaveRequest>>((ref) async {
-  final auth = ref.watch(authControllerProvider);
-  if (!(auth.profile?.isApprover ?? false) && !(auth.profile?.isAdmin ?? false)) {
+  ref.watch(currentUserIdProvider);
+  final profile = ref.watch(authControllerProvider).profile;
+  if (!(profile?.isApprover ?? false) && !(profile?.isAdmin ?? false)) {
     return const [];
   }
   ref.watch(coverChangesProvider);
@@ -203,6 +211,7 @@ final pendingApprovalsProvider = FutureProvider<List<LeaveRequest>>((ref) async 
 /// Watches the realtime stream, so the board refetches the moment anything
 /// changes rather than waiting for the user to pull to refresh.
 final actionBoardProvider = FutureProvider<ActionBoard>((ref) async {
+  ref.watch(currentUserIdProvider);
   ref.watch(coverChangesProvider);
   return ref.read(operationsRepositoryProvider).actionBoard();
 });
