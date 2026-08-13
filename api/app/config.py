@@ -29,6 +29,26 @@ class Settings:
             if o.strip()
         ]
 
+        # Swagger UI at /docs, ReDoc at /redoc, and the OpenAPI spec itself.
+        #
+        # On by default. Publishing the API surface is not a vulnerability —
+        # every endpoint verifies a JWT, and the web client calls these same
+        # URLs in the open regardless — and an interactive reference is worth
+        # far more than the obscurity it costs.
+        #
+        # Turn it off (DOCS_ENABLED=false) once real student records are in
+        # the database. At that point it is free reconnaissance for an
+        # attacker with no compensating benefit.
+        self.docs_enabled: bool = self._flag("DOCS_ENABLED", default=True)
+
+    @staticmethod
+    def _flag(name: str, *, default: bool) -> bool:
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        # Accept the spellings people actually type in a .env or a Fly secret.
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+
     @staticmethod
     def _require(name: str) -> str:
         val = os.getenv(name)

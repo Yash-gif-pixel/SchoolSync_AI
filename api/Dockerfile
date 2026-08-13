@@ -1,5 +1,10 @@
-# Written in Phase 0, deployed in Phase 5. Ten minutes now saves an afternoon later.
-FROM python:3.12-slim
+# Written in Phase 0, deployed in Phase 5.
+#
+# 3.14 to match the interpreter every test has actually run against. It was
+# pinned to 3.12 when written, which risked the container hitting syntax or
+# library behaviour the local environment never exercised — a difference that
+# only ever shows up in the deploy log, at the worst moment.
+FROM python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

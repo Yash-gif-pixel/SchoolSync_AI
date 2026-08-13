@@ -90,6 +90,7 @@ class TodayPeriod {
     required this.marked,
     this.startTime,
     this.room,
+    this.coveringFor,
   });
 
   final String slotId;
@@ -100,6 +101,12 @@ class TodayPeriod {
   final bool marked;
   final String? startTime;
   final String? room;
+
+  /// The colleague this period belongs to, when the teacher is standing in
+  /// for them. Null for their own classes.
+  final String? coveringFor;
+
+  bool get isCover => coveringFor != null;
 
   String get time => startTime == null ? '' : startTime!.substring(0, 5);
 
@@ -112,6 +119,7 @@ class TodayPeriod {
         marked: (m['marked'] ?? false) as bool,
         startTime: m['start_time'] as String?,
         room: m['room'] as String?,
+        coveringFor: m['covering_for'] as String?,
       );
 }
 

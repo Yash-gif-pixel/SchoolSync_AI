@@ -1,0 +1,17 @@
+# Secrets never enter the image — the platform injects them as env vars.
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Tests and one-off scripts are developer tools, not runtime.
+test_*.py
+tests/
+verify_*.py
+seed.py
+make_leadership.py
+last_extraction.json

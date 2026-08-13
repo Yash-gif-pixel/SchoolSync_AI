@@ -42,7 +42,7 @@ ADMISSION_FIELDS = [
 def template(target: str = "student", fields=None) -> dict:
     return {
         "id": "tpl-1",
-        "name": "Standard Admission Form",
+        "name": "Example Admission Form",
         "target": target,
         "fields": fields if fields is not None else ADMISSION_FIELDS,
     }

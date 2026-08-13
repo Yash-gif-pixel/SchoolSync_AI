@@ -30,8 +30,20 @@ settings = get_settings()
 
 app = FastAPI(
     title="SchoolSync AI API",
-    version="0.2.0",
-    description="AI-powered school operations platform — Phase 1: AI Document Reader",
+    version="1.0.0",
+    description=(
+        "AI-powered school operations platform. Document extraction, "
+        "constraint-solved timetabling, live substitution matching, staffing "
+        "forecasts and exam seating.\n\n"
+        "Every endpoint requires a Supabase JWT — an unauthenticated request "
+        "returns 401."
+    ),
+    # Nulling openapi_url matters as much as the two pages: without it the
+    # same information is still served as JSON, just without the nice front
+    # end. See Settings.docs_enabled for when to turn this off.
+    docs_url="/docs" if settings.docs_enabled else None,
+    redoc_url="/redoc" if settings.docs_enabled else None,
+    openapi_url="/openapi.json" if settings.docs_enabled else None,
 )
 
 app.add_middleware(

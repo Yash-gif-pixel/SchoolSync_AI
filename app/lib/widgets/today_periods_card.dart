@@ -138,6 +138,10 @@ class _PeriodTile extends StatelessWidget {
                 [
                   if (p.time.isNotEmpty) p.time,
                   ?p.room,
+                  // Whose class it is comes before whether the register is
+                  // done — a teacher walking into a room they do not normally
+                  // teach needs that first.
+                  if (p.isCover) 'covering for ${p.coveringFor}',
                   p.marked ? 'attendance taken' : 'not marked yet',
                 ].join(' · '),
                 maxLines: 1,

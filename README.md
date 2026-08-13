@@ -2,7 +2,7 @@
 
 AI-powered school operations platform. Flutter Web + FastAPI + Supabase.
 
-**Status: Phase 1 complete**
+**Status: feature complete, not yet deployed**
 
 | Phase | |
 |---|---|
@@ -11,6 +11,16 @@ AI-powered school operations platform. Flutter Web + FastAPI + Supabase.
 | 2 — Timetable engine | CP-SAT solver with conflict diagnosis |
 | 3 — Attendance & cover | default-to-present marking, leave approval, live Action Board |
 | 4 — Predictive staffing | interpretable forecast of where cover will run short |
+| 5 — Deployment | **remaining** — see *Deploying* below |
+
+Built after the original five phases:
+
+| | |
+|---|---|
+| Exam seating | per-day plans that seat a grade in its own rooms, nobody beside their own class |
+| School events | Annual Day and the like — named staff, multi-day, feeds the forecast |
+| Directory | 1,800 students by class, 59 staff by department |
+| Leadership | principal, vice principal and HODs, appointed from the dashboard |
 
 ---
 
@@ -36,8 +46,11 @@ copy; the model reads the printed labels off it and drafts a field list with
 types and destinations; the admin edits it and saves. The proposal is never
 saved unreviewed.
 
-Two templates ship built in: **Standard Admission Form** (→ student) and
-**Leave / Medical Note** (→ leave request).
+Two example templates are seeded so the app is usable on first run — one
+producing a student, one producing a leave request. They are starting points,
+not a standard: there is no such thing as a standard admission form, and a
+school is expected to photograph its own blank paperwork and let the model
+draft the template from it.
 
 ### The leave note closes the loop
 
@@ -155,13 +168,29 @@ Password for every account: `Demo@12345`
 
 | Email | Lands on |
 |---|---|
-| `admin@school.test` | Admin Dashboard |
-| `hod@school.test` | Teacher Portal — Science HOD, can approve leave |
+| `admin@school.test` | Admin Dashboard — office staff, not the principal |
+| `principal@school.test` | Teacher Portal — heads the school |
+| `vp@school.test` | Teacher Portal — reviews leave for the heads of department |
+| `hod@school.test` | Teacher Portal — Science HOD, approves their department |
 | `teacher@school.test` | Teacher Portal — plain teacher |
 
-These three addresses are pinned in `seed.py` (`FIXED_EMAILS`) so the app's
-quick-fill buttons survive a re-seed; the other 70 teachers get generated names
-and addresses.
+The three original addresses are pinned in `seed.py` (`FIXED_EMAILS`) so the
+app's quick-fill buttons survive a re-seed; the rest of the staff get generated
+names and addresses.
+
+The principal and vice principal are created by `make_leadership.py` rather
+than by the seed, because auth users cannot be created from SQL. It is
+re-runnable — an existing account is reused rather than duplicated.
+
+```powershell
+cd api
+..\.venv\Scripts\python.exe make_leadership.py
+```
+
+The login page also carries **Admin (new)**, which is not a login. It opens a
+preview of first-run setup — add classes, name students, generate an invite
+link — that writes nothing at all. It exists to show how a school onboards
+without touching the seeded one.
 
 ---
 
@@ -354,6 +383,107 @@ curl http://127.0.0.1:8000/forecast/staffing   # with an admin bearer token
 
 ---
 
+## Exam seating
+
+`api/app/services/seating.py`. Not a solver — see below for why.
+
+An exam is a **season**, not a day. Name it, put grades on its roster, then mark
+each day on a calendar and say which grades sit that day. Seating is planned
+**per day**, which is what makes the room rule hold: on Tuesday only Tuesday's
+grades leave their classrooms and the rest of the school has a normal day.
+
+**The rule that shapes everything:** only the rooms belonging to the grades
+actually sitting are used. Grade 1 writes in Grade 1's four rooms. So the seat
+supply is fixed by the selection, and the anti-copying guarantee has to come
+from *arrangement* rather than from empty space.
+
+Two stages, because they are different problems:
+
+1. **Deal students to rooms.** Each section is spread evenly across every
+   available room. Keeping a section together would make stage 2 impossible —
+   a room of nothing but 1A has no valid arrangement.
+2. **Lay out each room.** Walk the grid in reading order; at each seat take
+   from whichever class has the most students still waiting, excluding any
+   class already sitting to the left or directly in front.
+
+Largest-remaining-first is the part that matters: serving the biggest group
+while it still has legal seats is what stops it being stranded at the end with
+only adjacent seats free.
+
+**No CP-SAT here, unlike the timetable.** Rooms are independent once stage 1
+has dealt the students, and grid colouring has a known-good greedy. A solver
+would add a time limit and a failure mode in exchange for nothing. What it does
+borrow is the honesty — every breach is counted, verified independently of the
+code that placed the seats, and reported.
+
+Measured on the seeded school:
+
+| Selection | Students | Rooms | Occupancy | Same-class neighbours |
+|---|---|---|---|---|
+| Grade 1 | 180 | 4 | 90% | **0** |
+| Grades 1+2 | 360 | 8 | 90% | **0** |
+| Grades 1–6 | 1,080 | 24 | 90% | **0** |
+
+At 90% occupancy students do sit shoulder to shoulder — just never beside
+their own class. Physical spacing would need roughly twice the rooms, which
+would break the rule above. That was the trade.
+
+### Rooms have an address
+
+`006_seating.sql` renumbers the 40 home rooms into two blocks:
+
+| | Ground floor | First floor |
+|---|---|---|
+| **Block A** | `A-1`–`A-8` (grades 1–2) | `A-101`–`A-112` (grades 3–5) |
+| **Block B** | `B-1`–`B-8` (grades 6–7) | `B-101`–`B-112` (grades 8–10) |
+
+Eight and twelve rather than ten and ten so that no grade is split across two
+floors — a grade sits its exam on one corridor.
+
+---
+
+## School events
+
+Annual Day, Sports Day, an inspection — anything that takes staff off the
+timetable without being leave. Name it, pick the days from a calendar, tick the
+staff who will be tied up.
+
+`calendar_events` already existed and already fed the forecast, but
+`teachers_required` was a number somebody typed. It is now **derived from a
+roster somebody actually chose**, so the forecast keeps reading the column it
+always read while the number becomes trustworthy.
+
+Two things follow from naming the individuals rather than a headcount:
+
+- The **forecast** counts the event on every day it runs, not just the first.
+- The **substitution matcher** will not offer somebody who is at the event, and
+  says so when that leaves a period uncovered: *"No teacher is free this period
+  — 11 are committed to Annual Day 2026."*
+
+---
+
+## Directory and leadership
+
+The **Students** and **Staff** tiles on the admin dashboard are clickable.
+Students opens the roll class by class; Staff opens the list by department,
+with heads pinned to the top of their group.
+
+The staff page is also the appointment desk. **Principal** and **Vice
+Principal** show their holder or read *Vacant*; every teacher row has a menu to
+make them head of their department. Appointing is a **swap done in one call** —
+the unique indexes mean a new principal cannot be inserted while the old one
+still holds the post, so the API stands the incumbent down in the same
+transaction and reports who that was.
+
+The administrator account is refused all three posts. It is office staff; the
+principal runs the school.
+
+> The student roll is 1,800 rows and PostgREST caps a select at 1,000, so
+> `/directory/students` pages. Unpaged it would have stopped at a thousand
+> names and nobody would have noticed until a parent asked.
+
+---
+
 ## Layout
 
 ```
@@ -376,13 +506,18 @@ db/             SQL migrations — apply in the Supabase SQL editor, in order
 |---|---|
 | Classes | 40 (grades 1–10 × sections A–D) |
 | Students | 1,800 (45/class) |
-| Staff | 73 (1 admin + 72 teachers, 1 HOD per department) |
+| Staff | 59 — 1 admin, 57 teachers, plus principal and vice principal |
+| Heads of department | 8 |
 | Departments | 7 |
 | Subjects | 6 core + Physical Education |
+| Rooms | 44 — 40 home rooms (5 × 10 seats), 2 science labs, 1 computer lab, 1 sports |
 | Teaching slots | 36/week (6 periods × Mon–Sat) |
 | Teaching assignments | 320, totalling 1,440 teacher-periods/week |
-| Leave history | 284 requests over 90 days |
-| Attendance | 18,000 marks over 10 days |
+| Leave history | ~215 requests over 90 days |
+| Attendance | ~18,000 marks over 10 days |
+
+Counts drift as the demo is used — leave gets filed, appointments change. The
+figures above were read from the live database, not from `seed.py`.
 
 Re-seed at any time:
 
@@ -434,12 +569,94 @@ cd api
 The `service_role` key bypasses RLS and lives only in `api/.env`, never in the
 Flutter bundle. The anon key is public by design and ships in the client.
 
+### Two paths to the data, protected differently
+
+Worth being precise about, because the answer differs:
+
+| Path | Protected by |
+|---|---|
+| Flutter → Supabase directly (anon key) | **RLS** |
+| Flutter → FastAPI → Supabase (`service_role`) | **the API's own auth guards** |
+
+Every router uses the `service_role` client, so RLS is bypassed on that path by
+design — the backend is trusted, which is exactly why its key never reaches the
+browser. That makes `Depends(get_current_user)` and `Depends(require_admin)`
+load-bearing rather than decorative. All 56 operations carry one; an
+unauthenticated request gets `401` and writes nothing.
+
+### The API docs are public, deliberately
+
+`/docs`, `/redoc` and `/openapi.json` are served by default. Publishing the API
+surface is not a vulnerability — authentication is the boundary, not obscurity,
+and the web client calls these same URLs in the open regardless.
+
+Turn them off once the database holds real student records, at which point they
+are free reconnaissance with no compensating benefit:
+
+```bash
+DOCS_ENABLED=false
+```
+
+All three go at once. Hiding the two pages but leaving `openapi.json` up would
+serve the same information as JSON.
+
+---
+
+## Deploying
+
+Nothing here has been deployed yet. What has been prepared:
+
+| | |
+|---|---|
+| `api/Dockerfile` | written in Phase 0, unused so far |
+| `CORS_ORIGINS` | env var, comma separated. Defaults to the local dev server |
+| `DOCS_ENABLED` | env var, defaults to on |
+| `API_BASE_URL` | Flutter `--dart-define` at build time |
+
+```powershell
+# point the web build at a deployed API
+C:\dev\flutter\bin\flutter.bat build web --release `
+  --dart-define=API_BASE_URL=https://your-api.example.com
+```
+
+Traps worth knowing before the day:
+
+- **Free-tier cold starts.** Render sleeps after 15 minutes with a ~50s wake.
+  Prefer Fly.io or Railway, or add a 10-minute cron ping.
+- **Supabase pauses free projects after 7 days idle.** Touch it the night
+  before.
+- **CORS must name the deployed frontend origin.** Never `*` — credentials are
+  sent with every request.
+- **Flutter web's first load is heavy.** Build `--release` and open the URL
+  once before presenting.
+
 ---
 
 ## Database changes
 
 Migrations in `db/` are applied by pasting them into the Supabase SQL editor,
-in filename order. Both are idempotent and safe to re-run.
+in filename order. All are idempotent and safe to re-run.
+
+| | |
+|---|---|
+| `001_schema.sql` | core tables |
+| `002_rls.sql` | row level security |
+| `003_templates.sql` | document templates |
+| `004_leave_note_template.sql` | the second built-in template |
+| `005_no_overlapping_leave.sql` | exclusion constraint on leave dates |
+| `006_seating.sql` | rooms get a block/floor/seat grid; exams |
+| `007_exam_schedule.sql` | an exam becomes a season of sittings |
+| `008_events.sql` | multi-day events with a named staff roster |
+| `009_vice_principal.sql` | `is_vice_principal` |
+| `010_principal.sql` | `is_principal` |
+
+Two are not purely additive and are called out in their own headers:
+
+- **`006`** renames every home room — `Room 1A` becomes `A-1` — to give rooms a
+  physical address the seating engine can reason about.
+- **`007`** drops and recreates `seating_plans` and `seat_allocations`, because
+  a plan keyed to a whole exam has no meaningful date once each day seats a
+  different set of grades.
 
 > `002_rls.sql` drops **all** policies in the `public` schema before recreating
 > them, so it stays re-runnable. If you hand-write a policy in the dashboard,

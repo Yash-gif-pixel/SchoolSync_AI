@@ -52,7 +52,7 @@ def token_for(email: str) -> str:
     return r.json()["access_token"]
 
 
-TEST_TEMPLATE_NAMES = ("E2E Fee Receipt", "Standard Admission Form (copy)")
+TEST_TEMPLATE_NAMES = ("E2E Fee Receipt", "Example Admission Form (copy)")
 
 
 def sweep_leftovers() -> None:

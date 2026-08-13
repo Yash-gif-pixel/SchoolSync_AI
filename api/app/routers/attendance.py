@@ -43,6 +43,37 @@ def _teaches(user: CurrentUser, class_id: str) -> bool:
     return bool(rows)
 
 
+def _covering(user: CurrentUser, class_id: str, slot_id: str,
+              day: dt.date) -> bool:
+    """Is this teacher standing in for somebody, here, now?
+
+    Scoped to the exact period on purpose. Asking only "do they cover this
+    class" would hand a teacher who covered 8D once in September the power to
+    mark 8D's register for the rest of the year.
+    """
+    subs = (admin().table("substitutions")
+            .select("timetable_entries!inner(slot_id, "
+                    "  teaching_assignments!inner(class_id))")
+            .eq("substitute_teacher_id", user.id)
+            .eq("status", "confirmed")
+            .eq("date", day.isoformat())
+            .eq("timetable_entries.slot_id", slot_id)
+            .eq("timetable_entries.teaching_assignments.class_id", class_id)
+            .limit(1).execute().data)
+    return bool(subs)
+
+
+def _may_mark(user: CurrentUser, class_id: str, slot_id: str,
+              day: dt.date) -> bool:
+    """Their own class, or one they are confirmed to be covering today.
+
+    Without the second half a substitute walks into the room and the app
+    refuses them the register — the cover exists on the Action Board and
+    nowhere a teacher can act on it.
+    """
+    return _teaches(user, class_id) or _covering(user, class_id, slot_id, day)
+
+
 @router.get("/today")
 def my_periods_today(
     date: dt.date | None = Query(default=None),
@@ -93,6 +124,52 @@ def my_periods_today(
             "room": (r.get("rooms") or {}).get("name"),
             "marked": done > 0,
             "marked_count": done,
+            "covering_for": None,
+        })
+
+    # Cover this teacher is confirmed for today belongs on the same list.
+    # Without it the register is reachable but unfindable.
+    covers = (admin().table("substitutions")
+              .select("timetable_entries!inner(id, slot_id, "
+                      "  teaching_assignments!inner(teacher_id, "
+                      "    classes(id, name), subjects(name)), "
+                      "  time_slots!inner(slot_index, start_time, end_time), "
+                      "  rooms(name))")
+              .eq("substitute_teacher_id", user.id)
+              .eq("status", "confirmed")
+              .eq("date", day.isoformat())
+              .execute().data or [])
+
+    owners: dict[str, str] = {}
+    for c in covers:
+        e = c.get("timetable_entries") or {}
+        a = e.get("teaching_assignments") or {}
+        tid = a.get("teacher_id")
+        if tid and tid not in owners:
+            who = (admin().table("profiles").select("full_name")
+                   .eq("id", tid).maybe_single().execute())
+            owners[tid] = (who.data["full_name"] if who and who.data
+                           else "a colleague")
+
+        s_ = e.get("time_slots") or {}
+        cls = a.get("classes") or {}
+        done = (admin().table("attendance").select("id", count="exact")
+                .eq("class_id", cls.get("id")).eq("slot_id", e.get("slot_id"))
+                .eq("date", day.isoformat()).limit(1).execute().count or 0)
+
+        periods.append({
+            "timetable_entry_id": e.get("id"),
+            "slot_id": e.get("slot_id"),
+            "slot_index": s_.get("slot_index"),
+            "start_time": s_.get("start_time"),
+            "end_time": s_.get("end_time"),
+            "class_id": cls.get("id"),
+            "class_name": cls.get("name"),
+            "subject_name": (a.get("subjects") or {}).get("name"),
+            "room": (e.get("rooms") or {}).get("name"),
+            "marked": done > 0,
+            "marked_count": done,
+            "covering_for": owners.get(tid),
         })
 
     periods.sort(key=lambda p: p["slot_index"] or 0)
@@ -117,8 +194,9 @@ def roster(
     period shows what was actually recorded rather than resetting it.
     """
     day = date or dt.date.today()
-    if not _teaches(user, class_id):
-        raise HTTPException(403, "You do not teach this class.")
+    if not _may_mark(user, class_id, slot_id, day):
+        raise HTTPException(
+            403, "You do not teach this class, and are not covering it today.")
 
     students: list[dict] = []
     start = 0
@@ -164,8 +242,9 @@ def mark(
     user: CurrentUser = Depends(get_current_user),
 ) -> dict:
     """One write for the whole class."""
-    if not _teaches(user, payload.class_id):
-        raise HTTPException(403, "You do not teach this class.")
+    if not _may_mark(user, payload.class_id, payload.slot_id, payload.date):
+        raise HTTPException(
+            403, "You do not teach this class, and are not covering it today.")
 
     valid = {"present", "absent", "late"}
     bad = [m.status for m in payload.marks if m.status not in valid]

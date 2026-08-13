@@ -105,12 +105,16 @@ begin
 end $$;
 
 
--- ---------- built-in admission template -------------------------------
--- Ships so the app works out of the box; schools add their own alongside.
+-- ---------- example admission template --------------------------------
+-- Ships so the app works out of the box. Called an EXAMPLE deliberately:
+-- there is no standard admission form, every school prints its own, and the
+-- point of templates is that a school photographs its blank paperwork and
+-- has the model draft a template from it. Naming this one "Standard" implied
+-- the opposite of the feature it exists to demonstrate.
 insert into document_templates (name, description, target, is_builtin, fields)
 values (
-  'Standard Admission Form',
-  'Default nine-field admission form. Duplicate this and edit it to match your school''s own layout.',
+  'Example Admission Form',
+  'A nine-field sample so the app works on first run. Your school''s form will differ — photograph a blank copy and let the model draft a template, or duplicate this one and edit it.',
   'student',
   true,
   '[
