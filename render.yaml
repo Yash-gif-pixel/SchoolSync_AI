@@ -1,0 +1,55 @@
+# Render deployment for the FastAPI backend.
+#
+# This file is optional — everything in it can be clicked through in Render's
+# dashboard instead. It exists because a deployment described in a file is one
+# you can read, review and rebuild; a deployment that only exists as settings
+# somebody once typed is one nobody can reproduce.
+#
+# To use it: Render dashboard -> New -> Blueprint -> pick this repo.
+# Render reads this file and creates the service already configured.
+
+services:
+  - type: web
+    name: schoolsync-api
+    runtime: docker
+    plan: free
+
+    # The Dockerfile is in api/, not at the repo root. Without both of these
+    # Render looks in the wrong place and fails with "no Dockerfile found" —
+    # the single most common first-deploy error on a repo shaped like this.
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+
+    # Render polls this to decide whether the container came up. /health needs
+    # no database and no token, so it answers even if Supabase is asleep —
+    # which is what you want from a health check.
+    healthCheckPath: /health
+
+    # Only rebuild when the backend changes. Editing Flutter or the README
+    # should not cost a five-minute API rebuild.
+    buildFilter:
+      paths:
+        - api/**
+
+    envVars:
+      # sync: false means "ask me for this in the dashboard, and never write
+      # it into this file". These are secrets and this file is committed.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+
+      # Set this to the deployed frontend origin once it exists. It cannot be
+      # filled in yet — the frontend has no address until the API has one to
+      # be built against. Comma separated, no trailing slash, never "*".
+      - key: CORS_ORIGINS
+        sync: false
+
+      # Interactive API docs at /docs. On for a demo against seeded data;
+      # set to false once the database holds real student records.
+      - key: DOCS_ENABLED
+        value: "true"
