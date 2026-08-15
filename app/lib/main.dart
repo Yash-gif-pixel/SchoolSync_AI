@@ -12,6 +12,19 @@ Future<void> main() async {
   await Supabase.initialize(
     url: AppConfig.supabaseUrl,
     publishableKey: AppConfig.supabaseAnonKey,
+    // Every visit starts at the sign-in screen.
+    //
+    // By default Supabase writes the session to browser storage and restores
+    // it on load, so returning to the app dropped you straight onto whichever
+    // dashboard you last used. Sensible for a product somebody uses daily;
+    // wrong here, where the first thing anyone should meet is the sign-in
+    // screen and its four roles.
+    //
+    // EmptyLocalStorage keeps the session in memory only: it survives
+    // navigation within the app, and ends when the tab closes or reloads.
+    authOptions: const FlutterAuthClientOptions(
+      localStorage: EmptyLocalStorage(),
+    ),
   );
 
   runApp(const ProviderScope(child: SmartSchoolApp()));
