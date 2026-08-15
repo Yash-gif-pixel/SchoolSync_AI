@@ -2,7 +2,17 @@
 
 AI-powered school operations platform. Flutter Web + FastAPI + Supabase.
 
-**Status: feature complete, not yet deployed**
+**Live**
+
+| | |
+|---|---|
+| App | https://schoolsync-ai.yashmalik0904.workers.dev |
+| API | https://schoolsync-api-6frq.onrender.com |
+| API reference | https://schoolsync-api-6frq.onrender.com/docs |
+
+Sign in as `admin@school.test` with the password below, or use the quick-fill
+buttons. The first load can take up to a minute if the API has been idle —
+free hosting sleeps, and the app says so rather than spinning silently.
 
 | Phase | |
 |---|---|
@@ -11,7 +21,7 @@ AI-powered school operations platform. Flutter Web + FastAPI + Supabase.
 | 2 — Timetable engine | CP-SAT solver with conflict diagnosis |
 | 3 — Attendance & cover | default-to-present marking, leave approval, live Action Board |
 | 4 — Predictive staffing | interpretable forecast of where cover will run short |
-| 5 — Deployment | **remaining** — see *Deploying* below |
+| 5 — Deployment | Cloudflare Workers + Render + Supabase — see *Deploying* |
 
 Built after the original five phases:
 
@@ -127,7 +137,7 @@ cd api
 
 ## Run it
 
-**For demos, or any time the UI feels slow — use release:**
+**Locally, for demos or any time the UI feels slow — use release:**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\serve-release.ps1
@@ -491,7 +501,7 @@ api/            FastAPI backend
   app/          config, Supabase clients, JWT auth, routes
   seed.py       generates the whole demo school
   verify_*.py   schema + RLS verification scripts
-  Dockerfile    used in Phase 5
+  Dockerfile    the image Render builds
 app/            Flutter Web client
   lib/core/     config, auth controller, API client
   lib/screens/  login, splash, admin dashboard, teacher portal
@@ -604,31 +614,73 @@ serve the same information as JSON.
 
 ## Deploying
 
-Nothing here has been deployed yet. What has been prepared:
+Three services on three providers. Supabase was always hosted, so deploying
+meant putting the other two somewhere public.
 
-| | |
-|---|---|
-| `api/Dockerfile` | written in Phase 0, unused so far |
-| `CORS_ORIGINS` | env var, comma separated. Defaults to the local dev server |
-| `DOCS_ENABLED` | env var, defaults to on |
-| `API_BASE_URL` | Flutter `--dart-define` at build time |
-
-```powershell
-# point the web build at a deployed API
-C:\dev\flutter\bin\flutter.bat build web --release `
-  --dart-define=API_BASE_URL=https://your-api.example.com
+```
+Browser  ->  Cloudflare Workers      Flutter web, static assets
+                  |  HTTPS + JWT
+             Render                  FastAPI in Docker
+                  |  service_role
+             Supabase                Postgres, Auth, Realtime
 ```
 
-Traps worth knowing before the day:
+| | Where | Config |
+|---|---|---|
+| Flutter | Cloudflare Workers | [app/wrangler.toml](app/wrangler.toml) |
+| FastAPI | Render | [render.yaml](render.yaml), [api/Dockerfile](api/Dockerfile) |
+| Database | Supabase | migrations in `db/` |
 
-- **Free-tier cold starts.** Render sleeps after 15 minutes with a ~50s wake.
-  Prefer Fly.io or Railway, or add a 10-minute cron ping.
-- **Supabase pauses free projects after 7 days idle.** Touch it the night
-  before.
-- **CORS must name the deployed frontend origin.** Never `*` — credentials are
-  sent with every request.
-- **Flutter web's first load is heavy.** Build `--release` and open the URL
-  once before presenting.
+### Order matters, because each step needs the previous one's address
+
+```
+1. deploy the API          -> learn its URL
+2. build the app with that URL baked in -> deploy -> learn its URL
+3. set CORS_ORIGINS on the API to the app's URL
+```
+
+Step 2 is the one that catches people. `API_BASE_URL` is compiled **into**
+`main.dart.js` by `--dart-define`; it is not read at runtime. Change the API's
+address and the frontend must be rebuilt, not reconfigured. Check a build with:
+
+```bash
+grep -c "your-api-host" build/web/main.dart.js   # expect > 0
+grep -c "127.0.0.1:8000" build/web/main.dart.js  # expect 0
+```
+
+### Cloudflare build settings
+
+Their build image has no Flutter, so the build command installs it — pinned to
+the same version the tests run against, because `stable` drifts.
+
+| Field | Value |
+|---|---|
+| Root directory | `app` |
+| Deploy command | `npx wrangler deploy` |
+| Env var | `API_BASE_URL` = the Render URL |
+
+```bash
+git clone https://github.com/flutter/flutter.git --depth 1 -b 3.44.8 $HOME/flutter \
+  && export PATH="$HOME/flutter/bin:$PATH" \
+  && flutter build web --release --dart-define=API_BASE_URL=$API_BASE_URL
+```
+
+### What bites
+
+- **Cold starts.** Render's free tier sleeps after 15 minutes idle; the next
+  request takes up to a minute. The app shows *"Waking the server"* rather than
+  a bare spinner, because 50 seconds of silent spinning reads as broken. A
+  10-minute ping on `/health/db` prevents it entirely — and keeps Supabase
+  awake too, since that endpoint touches the database. Check the host's terms
+  before relying on it; some treat keep-alive pings as abuse.
+- **Supabase pauses free projects after ~7 days idle.** The API can be running
+  perfectly and still fail because the database is asleep.
+- **CORS must name the deployed frontend origin exactly.** No trailing slash,
+  never `*` — credentials are sent with every request. The symptom is a page
+  that loads normally with every data call failing, and only the browser
+  console says why.
+- **Paths in host settings are repo-relative.** `app`, not `C:\...\app`; the
+  build runs on their Linux container against a clone of the repo.
 
 ---
 
