@@ -78,12 +78,10 @@ class _SchoolSummary extends ConsumerWidget {
     final health = ref.watch(backendHealthProvider);
 
     return health.when(
-      loading: () => const SectionCard(
-        child: SizedBox(
-          height: 52,
-          child: SlowLoader(),
-        ),
-      ),
+      // No fixed height: this was 52px, sized for a bare spinner, which
+      // clipped the cold-start explanation to its first line. The card should
+      // grow to fit whatever the loader has to say.
+      loading: () => const SectionCard(child: SlowLoader()),
       error: (e, _) => Callout(
         tone: Tone.danger,
         message: 'Cannot reach the API',

@@ -493,7 +493,7 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      expect(find.text('Waking the server'), findsNothing,
+      expect(find.textContaining('Waking the server'), findsNothing,
           reason: 'a fast load must not flash an explanation');
 
       // Let the timer expire so the test does not end with it pending.
@@ -505,8 +505,11 @@ void main() {
       await tester.pump(SlowLoader.explainAfter + const Duration(seconds: 1));
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      expect(find.text('Waking the server'), findsOneWidget);
-      expect(find.textContaining('sleeps when idle'), findsOneWidget);
+      // The duration is the useful part, so it must be in the headline
+      // rather than buried in the smaller line beneath.
+      expect(find.textContaining('up to a minute'), findsOneWidget);
+      expect(find.textContaining('sleeps when nobody is using it'),
+          findsOneWidget);
     });
 
     testWidgets('does not fire after being disposed', (tester) async {

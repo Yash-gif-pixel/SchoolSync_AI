@@ -327,15 +327,15 @@ class _SlowLoaderState extends State<SlowLoader> {
                 child: Column(
                   children: [
                     Text(
-                      'Waking the server',
+                      'Waking the server — this can take up to a minute',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium
                           ?.copyWith(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Free hosting sleeps when idle. The first request after '
-                      'a quiet spell takes up to a minute.',
+                      'Free hosting sleeps when nobody is using it. It stays '
+                      'quick once awake.',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.labelSmall
                           ?.copyWith(color: AppColors.textSecondary),
