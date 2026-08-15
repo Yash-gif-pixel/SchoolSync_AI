@@ -12,6 +12,11 @@ import 'config.dart';
 class OperationsRepository {
   const OperationsRepository();
 
+  /// Matches ApiClient. Long enough to outlast a free-tier container waking
+  /// up — these calls previously had no timeout at all, so a genuine outage
+  /// left the UI spinning indefinitely with nothing to report.
+  static const _timeout = Duration(seconds: 90);
+
   Map<String, String> get _auth {
     final token = Supabase.instance.client.auth.currentSession?.accessToken;
     final bearer = token == null ? null : 'Bearer $token';
@@ -24,7 +29,7 @@ class OperationsRepository {
 
   // ------------------------------------------------------- attendance
   Future<List<TodayPeriod>> periodsToday() async {
-    final res = await http.get(_uri('/attendance/today'), headers: _auth);
+    final res = await http.get(_uri('/attendance/today'), headers: _auth).timeout(_timeout);
     _check(res);
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return ((body['periods'] ?? const []) as List)
@@ -36,7 +41,7 @@ class OperationsRepository {
     final res = await http.get(
       _uri('/attendance/roster', {'class_id': classId, 'slot_id': slotId}),
       headers: _auth,
-    );
+    ).timeout(_timeout);
     _check(res);
     return Roster.fromMap(jsonDecode(res.body) as Map<String, dynamic>);
   }
@@ -58,7 +63,7 @@ class OperationsRepository {
           for (final s in students) {'student_id': s.id, 'status': s.status.name},
         ],
       }),
-    );
+    ).timeout(_timeout);
     _check(res);
     return (jsonDecode(res.body) as Map<String, dynamic>)['message'] as String;
   }
@@ -77,13 +82,13 @@ class OperationsRepository {
         'to_date': _iso(to),
         'reason': reason,
       }),
-    );
+    ).timeout(_timeout);
     _check(res);
     return LeaveRequest.fromMap(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
   Future<List<LeaveRequest>> myLeave() async {
-    final res = await http.get(_uri('/leave/mine'), headers: _auth);
+    final res = await http.get(_uri('/leave/mine'), headers: _auth).timeout(_timeout);
     _check(res);
     return (jsonDecode(res.body) as List)
         .map((m) => LeaveRequest.fromMap(m as Map<String, dynamic>))
@@ -91,7 +96,7 @@ class OperationsRepository {
   }
 
   Future<List<LeaveRequest>> pendingApprovals() async {
-    final res = await http.get(_uri('/leave/pending'), headers: _auth);
+    final res = await http.get(_uri('/leave/pending'), headers: _auth).timeout(_timeout);
     _check(res);
     return (jsonDecode(res.body) as List)
         .map((m) => LeaveRequest.fromMap(m as Map<String, dynamic>))
@@ -105,14 +110,14 @@ class OperationsRepository {
       _uri('/leave/$id/review'),
       headers: _auth,
       body: jsonEncode({'approve': approve}),
-    );
+    ).timeout(_timeout);
     _check(res);
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   // ------------------------------------------------------------ cover
   Future<ActionBoard> actionBoard() async {
-    final res = await http.get(_uri('/substitutions/board'), headers: _auth);
+    final res = await http.get(_uri('/substitutions/board'), headers: _auth).timeout(_timeout);
     _check(res);
     return ActionBoard.fromMap(jsonDecode(res.body) as Map<String, dynamic>);
   }
@@ -122,7 +127,7 @@ class OperationsRepository {
       _uri('/substitutions/$substitutionId/confirm'),
       headers: _auth,
       body: jsonEncode({}),
-    );
+    ).timeout(_timeout);
     _check(res);
     return (jsonDecode(res.body) as Map<String, dynamic>)['message'] as String;
   }

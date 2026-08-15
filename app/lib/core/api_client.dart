@@ -20,6 +20,22 @@ class ApiException implements Exception {
 class ApiClient {
   const ApiClient();
 
+  /// Long enough to outlast a sleeping server.
+  ///
+  /// Free-tier hosting spins the container down after a quiet spell, and the
+  /// request that wakes it can take the better part of a minute. A 30-second
+  /// timeout — which is what this used to be — meant the first request after
+  /// any idle period failed every single time, while the loading indicator
+  /// was still telling the user to expect about a minute.
+  ///
+  /// A real outage now takes 90 seconds to report instead of 30. That is the
+  /// right trade: a slow success beats a fast, wrong "failed to fetch".
+  static const _timeout = Duration(seconds: 90);
+
+  /// Solving a timetable is CPU-bound work on the server, so it gets its own
+  /// budget on top of any cold start.
+  static const _longTimeout = Duration(seconds: 120);
+
   Map<String, String> get _headers {
     final token = Supabase.instance.client.auth.currentSession?.accessToken;
     return {
@@ -31,7 +47,7 @@ class ApiClient {
   Future<Map<String, dynamic>> get(String path) async {
     final res = await http
         .get(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: _headers)
-        .timeout(const Duration(seconds: 30));
+        .timeout(_timeout);
     if (res.statusCode >= 400) {
       throw ApiException(res.statusCode, res.body);
     }
@@ -42,7 +58,7 @@ class ApiClient {
   Future<List<dynamic>> getList(String path) async {
     final res = await http
         .get(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: _headers)
-        .timeout(const Duration(seconds: 30));
+        .timeout(_timeout);
     if (res.statusCode >= 400) {
       throw ApiException(res.statusCode, res.body);
     }
@@ -52,7 +68,7 @@ class ApiClient {
   Future<void> delete(String path) async {
     final res = await http
         .delete(Uri.parse('${AppConfig.apiBaseUrl}$path'), headers: _headers)
-        .timeout(const Duration(seconds: 30));
+        .timeout(_timeout);
     if (res.statusCode >= 400) {
       throw ApiException(res.statusCode, res.body);
     }
@@ -65,7 +81,7 @@ class ApiClient {
           headers: _headers,
           body: jsonEncode(body ?? const {}),
         )
-        .timeout(const Duration(seconds: 60));
+        .timeout(_longTimeout);
     if (res.statusCode >= 400) {
       throw ApiException(res.statusCode, res.body);
     }
