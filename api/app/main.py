@@ -7,6 +7,8 @@ Later phases add /documents, /timetable, /leave and /forecast.
 
 from __future__ import annotations
 
+import time
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -103,14 +105,31 @@ def health() -> dict:
 
 @app.get("/health/db", tags=["system"])
 def health_db() -> dict:
-    """Row count per table — the fastest way to confirm schema + seed landed."""
+    """Row count per table — the fastest way to confirm schema + seed landed.
+
+    Seventeen tables means seventeen separate round trips, and the API and the
+    database are not in the same place. About one call in ten saw a single
+    table fail with a transient httpx ReadError — a dropped connection, not a
+    missing table — which surfaced on the dashboard as "ERROR: ReadError"
+    where a number belonged, and flipped `connected` to false.
+
+    So each table gets one retry. A genuine problem — a table that does not
+    exist, a bad key — fails identically twice and is still reported. A
+    dropped socket does not.
+    """
     counts: dict[str, object] = {}
     for t in EXPECTED_TABLES:
-        try:
-            res = admin().table(t).select("id", count="exact").limit(1).execute()
-            counts[t] = res.count
-        except Exception as e:
-            counts[t] = f"ERROR: {type(e).__name__}"
+        for attempt in (1, 2):
+            try:
+                res = (admin().table(t).select("id", count="exact")
+                       .limit(1).execute())
+                counts[t] = res.count
+                break
+            except Exception as e:
+                if attempt == 2:
+                    counts[t] = f"ERROR: {type(e).__name__}"
+                else:
+                    time.sleep(0.15)
     missing = [t for t, v in counts.items() if isinstance(v, str)]
     return {
         "connected": not missing,
