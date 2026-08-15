@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/timetable_repository.dart';
 import '../models/timetable.dart';
 import 'timetable_grid.dart';
+import 'ui/primitives.dart';
 
 /// The teacher's own week, from the live timetable.
 class MyTimetableCard extends ConsumerWidget {
@@ -37,7 +38,7 @@ class MyTimetableCard extends ConsumerWidget {
             mine.when(
               loading: () => const Padding(
                 padding: EdgeInsets.all(30),
-                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                child: SlowLoader(),
               ),
               error: (e, _) => Text('Could not load your timetable: $e',
                   style: TextStyle(color: theme.colorScheme.error)),

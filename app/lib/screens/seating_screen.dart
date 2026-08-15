@@ -93,10 +93,7 @@ class _SeatingScreenState extends ConsumerState<SeatingScreen> {
             label: const Text('New exam'),
           ),
           child: exams.when(
-            loading: () => const Padding(
-              padding: EdgeInsets.symmetric(vertical: AppSpace.xl),
-              child: Center(child: CircularProgressIndicator()),
-            ),
+            loading: () => const SlowLoader(),
             error: (e, _) => Callout(
               message: 'Could not load exams.',
               detail: e is ApiException ? readableApiError(e) : '$e',
@@ -451,7 +448,7 @@ class _ScheduleViewState extends ConsumerState<_ScheduleView> {
         icon: Icons.calendar_month_outlined,
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: AppSpace.xl),
-          child: Center(child: CircularProgressIndicator()),
+          child: SlowLoader(),
         ),
       ),
       error: (e, _) => SectionCard(
@@ -817,7 +814,7 @@ class _PlanView extends ConsumerWidget {
         icon: Icons.event_seat_outlined,
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: AppSpace.xl),
-          child: Center(child: CircularProgressIndicator()),
+          child: SlowLoader(),
         ),
       ),
       error: (e, _) => SectionCard(

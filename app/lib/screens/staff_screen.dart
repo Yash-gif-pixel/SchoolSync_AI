@@ -75,7 +75,7 @@ class _StaffScreenState extends ConsumerState<StaffScreen> {
             icon: Icons.badge_outlined,
             child: Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpace.xl),
-              child: Center(child: CircularProgressIndicator()),
+              child: SlowLoader(),
             ),
           ),
           error: (e, _) => SectionCard(

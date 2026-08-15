@@ -485,6 +485,51 @@ void main() {
     });
   });
 
+  // The whole point of SlowLoader is what it does after a delay, which is the
+  // easiest kind of behaviour to break without noticing.
+  group('SlowLoader', () {
+    testWidgets('stays quiet for a normal-length load', (tester) async {
+      await pumpInScroll(tester, const SlowLoader());
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text('Waking the server'), findsNothing,
+          reason: 'a fast load must not flash an explanation');
+
+      // Let the timer expire so the test does not end with it pending.
+      await tester.pump(SlowLoader.explainAfter);
+    });
+
+    testWidgets('explains itself once the wait gets long', (tester) async {
+      await pumpInScroll(tester, const SlowLoader());
+      await tester.pump(SlowLoader.explainAfter + const Duration(seconds: 1));
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.text('Waking the server'), findsOneWidget);
+      expect(find.textContaining('sleeps when idle'), findsOneWidget);
+    });
+
+    testWidgets('does not fire after being disposed', (tester) async {
+      await pumpInScroll(tester, const SlowLoader());
+      // Replace it before the timer would fire — a setState on a dead State
+      // throws, and this is exactly how that bug reaches production.
+      await pumpInScroll(tester, const Text('gone'));
+      await tester.pump(SlowLoader.explainAfter + const Duration(seconds: 1));
+
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('fits a narrow screen', (tester) async {
+      tester.view.physicalSize = const Size(380, 700);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await pumpInScroll(tester, const SlowLoader());
+      await tester.pump(SlowLoader.explainAfter + const Duration(seconds: 1));
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   // A month grid is a GridView with shrinkWrap inside a scroll view, and the
   // wide layout puts two months in a Wrap — which hands its children unbounded
   // width. Both have bitten this codebase before.

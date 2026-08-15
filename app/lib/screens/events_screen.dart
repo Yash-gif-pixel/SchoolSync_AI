@@ -84,7 +84,7 @@ class _EventsScreenState extends ConsumerState<EventsScreen> {
             icon: Icons.celebration_outlined,
             child: Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpace.xl),
-              child: Center(child: CircularProgressIndicator()),
+              child: SlowLoader(),
             ),
           ),
           error: (e, _) => SectionCard(
@@ -374,10 +374,7 @@ class _NewEventDialogState extends ConsumerState<_NewEventDialog> {
                 const SizedBox(height: AppSpace.sm),
 
                 staff.when(
-                  loading: () => const Padding(
-                    padding: EdgeInsets.symmetric(vertical: AppSpace.lg),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
+                  loading: () => const SlowLoader(),
                   error: (e, _) => Callout(
                     message: 'Could not load the staff list.',
                     detail: e is ApiException ? _readable(e) : '$e',

@@ -43,7 +43,7 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
             icon: Icons.groups_outlined,
             child: Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpace.xl),
-              child: Center(child: CircularProgressIndicator()),
+              child: SlowLoader(),
             ),
           ),
           error: (e, _) => SectionCard(

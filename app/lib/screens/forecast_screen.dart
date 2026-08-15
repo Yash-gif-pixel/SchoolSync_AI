@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/forecast_repository.dart';
 import '../models/forecast.dart';
 import '../widgets/shell/app_shell.dart';
-import '../widgets/ui/primitives.dart' show PageBody;
+import '../widgets/ui/primitives.dart' show PageBody, SlowLoader;
 
 /// Predictive staffing: where the school is likely to run short, and why.
 ///
@@ -31,7 +31,7 @@ class ForecastScreen extends ConsumerWidget {
         ),
       ],
       child: forecast.when(
-        loading: () => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        loading: () => const SlowLoader(),
         error: (e, _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(24),

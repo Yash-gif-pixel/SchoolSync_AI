@@ -178,7 +178,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
           templates.when(
             loading: () => const Padding(
               padding: EdgeInsets.all(40),
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              child: SlowLoader(),
             ),
             error: (e, _) => Card(
               color: theme.colorScheme.errorContainer,

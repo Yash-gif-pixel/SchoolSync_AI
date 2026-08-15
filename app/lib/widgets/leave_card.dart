@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/operations_repository.dart';
 import '../models/operations.dart';
+import 'ui/primitives.dart';
 
 /// File leave, and see what happened to earlier requests.
 class LeaveCard extends ConsumerStatefulWidget {
@@ -140,7 +141,7 @@ class _LeaveCardState extends ConsumerState<LeaveCard> {
           mine.when(
             loading: () => const Padding(
               padding: EdgeInsets.all(16),
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              child: SlowLoader(),
             ),
             error: (e, _) => Text('Could not load: $e',
                 style: TextStyle(color: theme.colorScheme.error)),

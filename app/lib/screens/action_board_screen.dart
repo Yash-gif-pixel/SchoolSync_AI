@@ -69,7 +69,7 @@ class _ActionBoardScreenState extends ConsumerState<ActionBoardScreen> {
         ),
       ],
       child: board.when(
-        loading: () => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        loading: () => const SlowLoader(),
         error: (e, _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(24),

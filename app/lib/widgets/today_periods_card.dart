@@ -47,7 +47,7 @@ class TodayPeriodsCard extends ConsumerWidget {
       child: periods.when(
         loading: () => const Padding(
           padding: EdgeInsets.symmetric(vertical: 28),
-          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          child: SlowLoader(),
         ),
         error: (e, _) => Callout(
           tone: Tone.danger,

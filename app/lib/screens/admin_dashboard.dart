@@ -81,7 +81,7 @@ class _SchoolSummary extends ConsumerWidget {
       loading: () => const SectionCard(
         child: SizedBox(
           height: 52,
-          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          child: SlowLoader(),
         ),
       ),
       error: (e, _) => Callout(

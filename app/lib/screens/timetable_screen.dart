@@ -66,7 +66,7 @@ class _TimetableScreenState extends ConsumerState<TimetableScreen> {
           active.when(
             loading: () => const Padding(
               padding: EdgeInsets.all(40),
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              child: SlowLoader(),
             ),
             error: (e, _) => Card(
               color: theme.colorScheme.errorContainer,

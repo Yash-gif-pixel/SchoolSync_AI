@@ -5,6 +5,8 @@
 /// (© 2023 Hany Sameh) — see THIRD_PARTY_NOTICES.md.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
@@ -255,6 +257,95 @@ class StatTile extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppRadius.md),
         child: tile,
+      ),
+    );
+  }
+}
+
+/// A spinner that explains itself when the wait gets long.
+///
+/// Free-tier hosting sleeps after a period of inactivity, so the first request
+/// after a quiet spell can take the best part of a minute while the container
+/// boots. A bare spinner for that long reads as broken rather than slow, and
+/// somebody evaluating this would reasonably conclude it had hung.
+///
+/// So: a plain spinner for the first few seconds, since almost every load
+/// finishes inside that and a message would only flicker. After that, say what
+/// is actually happening.
+class SlowLoader extends StatefulWidget {
+  const SlowLoader({
+    super.key,
+    this.padding = const EdgeInsets.symmetric(vertical: AppSpace.xl),
+  });
+
+  final EdgeInsets padding;
+
+  /// How long a load may take before it stops being unremarkable.
+  static const explainAfter = Duration(seconds: 4);
+
+  @override
+  State<SlowLoader> createState() => _SlowLoaderState();
+}
+
+class _SlowLoaderState extends State<SlowLoader> {
+  Timer? _timer;
+  bool _slow = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(SlowLoader.explainAfter, () {
+      if (mounted) setState(() => _slow = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: widget.padding,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            if (_slow) ...[
+              const SizedBox(height: AppSpace.md),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 280),
+                child: Column(
+                  children: [
+                    Text(
+                      'Waking the server',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Free hosting sleeps when idle. The first request after '
+                      'a quiet spell takes up to a minute.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.labelSmall
+                          ?.copyWith(color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
