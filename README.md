@@ -10,9 +10,13 @@ AI-powered school operations platform. Flutter Web + FastAPI + Supabase.
 | API | https://schoolsync-api-6frq.onrender.com |
 | API reference | https://schoolsync-api-6frq.onrender.com/docs |
 
-Sign in as `admin@school.test` with the password below, or use the quick-fill
-buttons. The first load can take up to a minute if the API has been idle —
-free hosting sleeps, and the app says so rather than spinning silently.
+Every visit starts at the sign-in screen — sessions are deliberately not
+persisted, see *Sessions* below. Use `admin@school.test` with the password
+further down, or the quick-fill buttons.
+
+The first load can take up to a minute if the API has been idle. Free hosting
+sleeps when nobody is using it, and the app says so rather than spinning
+silently.
 
 | Phase | |
 |---|---|
@@ -201,6 +205,21 @@ The login page also carries **Admin (new)**, which is not a login. It opens a
 preview of first-run setup — add classes, name students, generate an invite
 link — that writes nothing at all. It exists to show how a school onboards
 without touching the seeded one.
+
+### Sessions do not persist across a reload
+
+`main.dart` initialises Supabase with `EmptyLocalStorage`, so the session is
+held in memory rather than written to browser storage. Every visit therefore
+opens on the sign-in screen.
+
+The default behaviour — restore the session and go straight to the last
+dashboard — is right for a product somebody uses every day. It is wrong here:
+the sign-in screen and its five roles are the first thing anyone should meet,
+and a demo that skips it starts halfway through the story.
+
+The cost is that **refreshing mid-session signs you out**, because a browser
+cannot distinguish a refresh from a fresh visit. Worth knowing before a live
+demo. To restore the usual behaviour, drop the `authOptions` argument.
 
 ---
 
