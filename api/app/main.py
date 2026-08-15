@@ -75,6 +75,27 @@ app.include_router(directory.router)
 app.include_router(seating.router)
 
 
+@app.get("/", tags=["system"], include_in_schema=False)
+def root() -> dict:
+    """A signpost, because this is the address people try first.
+
+    Without it the root returns a bare `{"detail":"Not Found"}`, which reads
+    as a broken deployment rather than as an API with no page at `/`. Anyone
+    pasting the bare URL into a browser deserves to be told where to go.
+
+    Hidden from the schema: it documents nothing, and listing it in /docs
+    alongside the real endpoints would only add noise.
+    """
+    return {
+        "service": app.title,
+        "version": app.version,
+        "status": "ok",
+        "docs": "/docs" if settings.docs_enabled else "disabled",
+        "health": "/health/db",
+        "note": "This is the API. The school app is a separate web address.",
+    }
+
+
 @app.get("/health", tags=["system"])
 def health() -> dict:
     return {"status": "ok", "service": "schoolsync-ai-api", "version": app.version}

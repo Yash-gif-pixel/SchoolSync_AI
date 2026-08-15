@@ -1,0 +1,26 @@
+# Cloudflare deployment for the Flutter web build.
+#
+# Cloudflare merged Pages into Workers, so a static site is now deployed as a
+# Worker that serves assets and runs no code of its own. This file is what
+# `npx wrangler deploy` reads to find the built bundle.
+#
+# The API is not here — it runs on Render. This deploys HTML, JavaScript and
+# fonts, nothing more.
+
+name = "schoolsync-ai"
+
+# Pins the Workers runtime behaviour to a known date. Without it wrangler
+# refuses to deploy; with a fixed date, a future runtime change cannot alter
+# how an already-working site behaves.
+compatibility_date = "2026-08-01"
+
+[assets]
+# Relative to this file. Cloudflare's "Root directory" is set to `app`, so the
+# build lands at app/build/web and wrangler looks for ./build/web.
+directory = "./build/web"
+
+# Flutter web is a single page: every route is resolved by Dart in the
+# browser, not by the server. Without this, anything other than the bare
+# domain returns a 404 from Cloudflare before the app ever loads — a link
+# shared straight to a deep route would appear broken.
+not_found_handling = "single-page-application"
