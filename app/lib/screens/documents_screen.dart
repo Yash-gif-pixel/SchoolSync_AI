@@ -9,7 +9,6 @@ import '../models/document_template.dart';
 import '../models/extracted_document.dart';
 import '../widgets/shell/app_shell.dart';
 import '../widgets/ui/primitives.dart';
-import 'document_review_screen.dart';
 
 /// Upload admission forms and work through the review queue.
 class DocumentsScreen extends ConsumerStatefulWidget {
@@ -84,14 +83,10 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
       };
 
   Future<void> _openReview(ExtractedDocument summary) async {
-    final repo = ref.read(documentsRepositoryProvider);
-    // The queue listing has no signed image URL; fetch the full record.
-    final full = await repo.get(summary.id);
-    if (!mounted) return;
-
-    final message = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => DocumentReviewScreen(document: full)),
-    );
+    // A real URL, so the reviewer can refresh, bookmark or share the form they
+    // are working on. The route fetches the full record — the queue listing
+    // has no signed image URL.
+    final message = await context.push<String>('/documents/${summary.id}');
     if (message != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

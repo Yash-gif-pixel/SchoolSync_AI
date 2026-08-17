@@ -10,13 +10,18 @@ from __future__ import annotations
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from ..auth import CurrentUser, get_current_user, require_admin
 from ..db import admin
+from ..services.jobs import jobs
 from ..services.timetable import DEFAULT_TIME_LIMIT, preflight, solve
 
 router = APIRouter(prefix="/timetable", tags=["timetable"])
+
+#: One kind of job so far; named so the registry can refuse two at once.
+SOLVE_JOB = "timetable.generate"
 
 # Which lab a subject needs. Anything else that requires_lab falls back to a
 # science lab.
@@ -76,16 +81,22 @@ class GenerateOptions(BaseModel):
     activate: bool = True
 
 
-@router.post("/generate", status_code=status.HTTP_201_CREATED)
-def generate(
-    opts: GenerateOptions | None = None,
-    user: CurrentUser = Depends(require_admin),
-) -> dict:
-    opts = opts or GenerateOptions()
+class NothingToSchedule(ValueError):
+    """The school has no teaching assignments, so there is nothing to solve."""
+
+
+def _generate(opts: GenerateOptions) -> dict:
+    """Solve, store the result as a new version, and publish it if it is whole.
+
+    Synchronous and self-contained: it is called both straight from a request
+    and from a worker thread, and must behave identically either way. It
+    raises a domain error rather than an HTTPException for the same reason —
+    on the job path there is no request left to turn a status code into.
+    """
     data = load_school()
 
     if not data["assignments"]:
-        raise HTTPException(422, "There are no teaching assignments to schedule.")
+        raise NothingToSchedule("There are no teaching assignments to schedule.")
 
     result = solve(data, time_limit=opts.time_limit, optimise_gaps=opts.optimise_gaps)
 
@@ -121,6 +132,91 @@ def generate(
         "error_count": sum(1 for d in result.diagnostics if d.severity == "error"),
         "warning_count": sum(1 for d in result.diagnostics if d.severity == "warning"),
     }
+
+
+def _refuse_if_solving() -> None:
+    live = jobs.running(SOLVE_JOB)
+    if live:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"A timetable is already being generated (job {live.id}). Two "
+            f"solves on one machine take each other's cores and both miss "
+            f"their time budget. Wait for it, or poll "
+            f"/timetable/jobs/{live.id}.",
+        )
+
+
+@router.post("/generate", status_code=status.HTTP_201_CREATED)
+async def generate(
+    opts: GenerateOptions | None = None,
+    user: CurrentUser = Depends(require_admin),
+) -> dict:
+    """Solve and wait for the answer.
+
+    Straightforward, and fine from a script or over a LAN. Over the public
+    internet a 45-second request is at the mercy of whatever proxy sits in
+    front of it, so the web client uses POST /timetable/jobs instead and polls.
+
+    `async def` with the work pushed to a thread, rather than a plain `def`:
+    both keep the event loop free, but this way the solve is explicit about
+    where it runs and shares one code path with the job runner.
+    """
+    _refuse_if_solving()
+    try:
+        return await run_in_threadpool(_generate, opts or GenerateOptions())
+    except NothingToSchedule as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+
+
+# ------------------------------------------------------------------- jobs
+@router.post("/jobs", status_code=status.HTTP_202_ACCEPTED)
+async def start_generation(
+    opts: GenerateOptions | None = None,
+    user: CurrentUser = Depends(require_admin),
+) -> dict:
+    """Start a solve and return at once with something to poll.
+
+    202, not 201: nothing has been created yet. The timetable version appears
+    only when the job finishes, and its id is in the job's result.
+    """
+    _refuse_if_solving()
+    opts = opts or GenerateOptions()
+    job = await jobs.submit(SOLVE_JOB, lambda: _generate(opts), user.id)
+    return {
+        **job.as_dict(),
+        "poll": f"/timetable/jobs/{job.id}",
+        # Not a promise, but callers need something to size a progress bar
+        # with, and "unknown" makes for a worse waiting experience than a
+        # number that is roughly right.
+        "expected_seconds": round(opts.time_limit),
+    }
+
+
+@router.get("/jobs")
+def list_jobs(user: CurrentUser = Depends(require_admin)) -> list[dict]:
+    """Recent solves, newest first. Results omitted — they are large."""
+    return [j.as_dict(include_result=False)
+            for j in jobs.recent(SOLVE_JOB)]
+
+
+@router.get("/jobs/{job_id}")
+def get_job(job_id: str, user: CurrentUser = Depends(require_admin)) -> dict:
+    """Poll one solve. `result` is null until `status` is "done".
+
+    A job the process has forgotten is a 404, and so is one from before a
+    restart — the registry is in memory. A client that gets a 404 while
+    polling should look at /timetable/versions, where a solve that did finish
+    will have left its version behind.
+    """
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "No such job. It may have finished long enough ago to be "
+            "forgotten, or the server may have restarted — check "
+            "/timetable/versions for the result.",
+        )
+    return job.as_dict()
 
 
 @router.get("/preflight")

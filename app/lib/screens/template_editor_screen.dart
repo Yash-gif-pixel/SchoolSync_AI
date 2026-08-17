@@ -1,11 +1,63 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../core/navigation.dart';
 import '../core/templates_repository.dart';
 import '../models/document_template.dart';
 import '../theme/app_theme.dart';
 import '../widgets/template_field_editor.dart';
 import '../widgets/ui/primitives.dart';
+
+/// `/templates/<id>/edit` — the editor, addressable by URL.
+class TemplateEditorRoute extends ConsumerWidget {
+  const TemplateEditorRoute({super.key, required this.templateId});
+
+  final String templateId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref.watch(templateProvider(templateId)).when(
+          loading: () => const Scaffold(
+            body: Center(child: Padding(
+              padding: EdgeInsets.all(AppSpace.xl),
+              child: SlowLoader(),
+            )),
+          ),
+          error: (e, _) => _Missing(
+            title: 'That template could not be opened',
+            message: '$e'.replaceFirst('Exception: ', ''),
+          ),
+          data: (template) => TemplateEditorScreen(template: template),
+        );
+  }
+}
+
+class _Missing extends StatelessWidget {
+  const _Missing({required this.title, required this.message});
+
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Template')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpace.xl),
+            child: EmptyState(
+              icon: Icons.description_outlined,
+              title: title,
+              message: message,
+              action: FilledButton(
+                onPressed: () => context.go('/templates'),
+                child: const Text('Back to templates'),
+              ),
+            ),
+          ),
+        ),
+      );
+}
 
 /// Curate a template — either one the AI drafted from a scanned blank form, or
 /// one built by hand. The AI's proposal is always a starting point, never
@@ -119,7 +171,13 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
         await repo.update(t);
       }
       ref.invalidate(templatesProvider);
-      if (mounted) Navigator.of(context).pop(true);
+      if (widget.template != null) {
+        ref.invalidate(templateProvider(widget.template!.id));
+      }
+      if (mounted) {
+        closeScreen(context,
+            fallback: '/templates', result: 'Saved "${t.name}".');
+      }
     } catch (e) {
       setState(() => _error = '$e'.replaceFirst('Exception: ', ''));
     } finally {
@@ -310,7 +368,8 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
                         TextButton(
                           onPressed: _saving
                               ? null
-                              : () => Navigator.of(context).pop(),
+                              : () =>
+                                  closeScreen(context, fallback: '/templates'),
                           child: const Text('Cancel'),
                         ),
                         const SizedBox(width: AppSpace.sm),

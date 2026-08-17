@@ -1,9 +1,11 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/directory_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/shell/app_shell.dart';
+import '../widgets/student_avatar.dart';
 import '../widgets/ui/primitives.dart';
 
 /// The student roll, class by class.
@@ -22,10 +24,66 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
   final _search = TextEditingController();
   String? _open;
 
+  /// The student whose photo is currently uploading, so only that one row
+  /// shows a spinner.
+  String? _uploading;
+
   @override
   void dispose() {
     _search.dispose();
     super.dispose();
+  }
+
+  void _snack(String message, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      backgroundColor: error ? Theme.of(context).colorScheme.error : null,
+    ));
+  }
+
+  Future<void> _pickPhoto(Student s) async {
+    final picked = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+      withData: true,
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    final f = picked.files.first;
+    if (f.bytes == null) return;
+
+    setState(() => _uploading = s.id);
+    try {
+      await ref.read(directoryRepositoryProvider).setStudentPhoto(
+            studentId: s.id,
+            filename: f.name,
+            bytes: f.bytes!,
+            mimeType: switch (f.extension?.toLowerCase()) {
+              'png' => 'image/png',
+              'webp' => 'image/webp',
+              _ => 'image/jpeg',
+            },
+          );
+      ref.invalidate(rollProvider);
+      _snack('Photo saved for ${s.name}.');
+    } catch (e) {
+      _snack('$e'.replaceFirst('Exception: ', ''), error: true);
+    } finally {
+      if (mounted) setState(() => _uploading = null);
+    }
+  }
+
+  Future<void> _removePhoto(Student s) async {
+    setState(() => _uploading = s.id);
+    try {
+      await ref.read(directoryRepositoryProvider).clearStudentPhoto(s.id);
+      ref.invalidate(rollProvider);
+      _snack('Photo removed for ${s.name}.');
+    } catch (e) {
+      _snack('$e'.replaceFirst('Exception: ', ''), error: true);
+    } finally {
+      if (mounted) setState(() => _uploading = null);
+    }
   }
 
   @override
@@ -151,6 +209,9 @@ class _StudentsScreenState extends ConsumerState<StudentsScreen> {
                             open: query.isNotEmpty || _open == name,
                             onToggle: () => setState(
                                 () => _open = _open == name ? null : name),
+                            uploadingId: _uploading,
+                            onPickPhoto: _pickPhoto,
+                            onRemovePhoto: _removePhoto,
                           ),
                     ],
                   ),
@@ -179,12 +240,18 @@ class _ClassBlock extends StatelessWidget {
     required this.students,
     required this.open,
     required this.onToggle,
+    required this.uploadingId,
+    required this.onPickPhoto,
+    required this.onRemovePhoto,
   });
 
   final String className;
   final List<Student> students;
   final bool open;
   final VoidCallback onToggle;
+  final String? uploadingId;
+  final void Function(Student) onPickPhoto;
+  final void Function(Student) onRemovePhoto;
 
   @override
   Widget build(BuildContext context) {
@@ -236,11 +303,25 @@ class _ClassBlock extends StatelessWidget {
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       leading: SizedBox(
-                        width: 34,
-                        child: Text(
-                          '${s.rollNo ?? '—'}',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.labelSmall,
+                        width: 68,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 28,
+                              child: Text(
+                                '${s.rollNo ?? '—'}',
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.labelSmall,
+                              ),
+                            ),
+                            const SizedBox(width: AppSpace.xs),
+                            StudentAvatar(
+                              initials: s.initials,
+                              photoUrl: s.photoUrl,
+                              radius: 16,
+                            ),
+                          ],
                         ),
                       ),
                       title: Text(s.name, style: theme.textTheme.bodyMedium),
@@ -252,6 +333,51 @@ class _ClassBlock extends StatelessWidget {
                                 ?s.guardianPhone,
                               ].join(' · '),
                               style: theme.textTheme.labelSmall,
+                            ),
+                      trailing: uploadingId == s.id
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : PopupMenuButton<String>(
+                              tooltip: 'Photo',
+                              icon: Icon(
+                                s.photoUrl == null
+                                    ? Icons.add_a_photo_outlined
+                                    : Icons.more_vert,
+                                size: 18,
+                                color: AppColors.textSecondary,
+                              ),
+                              onSelected: (v) => v == 'remove'
+                                  ? onRemovePhoto(s)
+                                  : onPickPhoto(s),
+                              itemBuilder: (_) => [
+                                PopupMenuItem(
+                                  value: 'upload',
+                                  child: ListTile(
+                                    dense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: const Icon(
+                                        Icons.photo_camera_outlined, size: 18),
+                                    title: Text(s.photoUrl == null
+                                        ? 'Add a photo'
+                                        : 'Replace photo'),
+                                  ),
+                                ),
+                                if (s.photoUrl != null)
+                                  const PopupMenuItem(
+                                    value: 'remove',
+                                    child: ListTile(
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: Icon(Icons.delete_outline,
+                                          size: 18),
+                                      title: Text('Remove photo'),
+                                    ),
+                                  ),
+                              ],
                             ),
                     ),
                 ],

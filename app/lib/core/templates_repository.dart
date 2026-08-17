@@ -85,6 +85,12 @@ class TemplatesRepository {
     return TemplateProposal.fromMap(jsonDecode(res.body) as Map<String, dynamic>);
   }
 
+  Future<DocumentTemplate> get(String id) async {
+    final res = await http.get(_uri('/$id'), headers: _auth);
+    _check(res);
+    return DocumentTemplate.fromMap(jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
   Future<DocumentTemplate> create(DocumentTemplate t) async {
     final res = await http.post(
       _uri(''),
@@ -150,4 +156,15 @@ final templatesRepositoryProvider =
 final templatesProvider = FutureProvider<List<DocumentTemplate>>((ref) async {
   ref.watch(currentUserIdProvider);
   return ref.read(templatesRepositoryProvider).list();
+});
+
+/// One template by id, so `/templates/<id>/edit` can be opened cold.
+///
+/// Fetched rather than picked out of [templatesProvider]: that list only
+/// carries active templates, and a retired one is still a legitimate thing to
+/// follow a link to and look at.
+final templateProvider =
+    FutureProvider.family<DocumentTemplate, String>((ref, id) async {
+  ref.watch(currentUserIdProvider);
+  return ref.read(templatesRepositoryProvider).get(id);
 });

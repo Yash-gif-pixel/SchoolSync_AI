@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -21,6 +22,19 @@ load_dotenv(Path(__file__).with_name(".env"))
 
 API = "http://127.0.0.1:8000"
 PASSWORD = "Demo@12345"
+
+# Must match DEFAULT_TIME_LIMIT in app/services/timetable.py.
+#
+# The solver splits its budget: phase 1 (strict feasibility) gets
+# min(limit, max(12, limit * 0.4)). This school — 40 classes, 57 staff, 320
+# assignments under a 5-periods-a-day cap — needs about 14.5s to pack the
+# curriculum, so a 20s budget clamps phase 1 to 12s, times out, falls back to
+# relaxed packing and leaves ~90 periods unplaced. Testing with a smaller
+# budget than production runs with was testing a different solver.
+TIME_LIMIT = 45.0
+
+# Wall clock is the budget plus the database round trips either side of it.
+WALL_BUDGET = TIME_LIMIT + 8
 
 sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
 
@@ -70,7 +84,7 @@ def main() -> int:
 
         print("\n3. Generate")
         r = c.post(f"{API}/timetable/generate", headers=A,
-                   json={"time_limit": 20, "optimise_gaps": True,
+                   json={"time_limit": TIME_LIMIT, "optimise_gaps": True,
                          "label": "e2e run"})
         if not check("generate returns 201", r.status_code == 201,
                      f"{r.status_code} {r.text[:200]}"):
@@ -83,8 +97,8 @@ def main() -> int:
         check("published as the live timetable", out["activated"] is True)
         check("no errors reported", out["error_count"] == 0,
               f"{out['error_count']} errors")
-        check("ran inside the time budget", s["wall_seconds"] <= 26,
-              f"{s['wall_seconds']}s")
+        check("ran inside the time budget", s["wall_seconds"] <= WALL_BUDGET,
+              f"{s['wall_seconds']}s of {WALL_BUDGET}s")
         check("used the compact variable model", s["variables"] < 50_000,
               f"{s['variables']:,} variables")
         check("used strict packing on a well-staffed school",
@@ -183,6 +197,74 @@ def main() -> int:
         check("version history returns 200", r.status_code == 200)
         check("the new version is listed",
               any(v["id"] == version_id for v in r.json()))
+
+        print("\n8. The same solve as a background job")
+        # Short budget and activate=false: this is about the job mechanics,
+        # not the timetable, and it must not disturb the live one published
+        # above.
+        job_opts = {"time_limit": 8, "optimise_gaps": False,
+                    "activate": False, "label": "e2e job"}
+
+        r = c.post(f"{API}/timetable/jobs", headers=T, json=job_opts)
+        check("teacher cannot start a job (403)", r.status_code == 403,
+              str(r.status_code))
+
+        r = c.post(f"{API}/timetable/jobs", headers=A, json=job_opts)
+        if not check("job accepted (202)", r.status_code == 202,
+                     f"{r.status_code} {r.text[:200]}"):
+            return 1
+        started = r.json()
+        job_id = started.get("job_id")
+        check("returned a job id to poll", bool(job_id))
+        check("said where to poll", started.get("poll", "").endswith(job_id))
+        check("returned immediately, before the solve could finish",
+              started["status"] in {"queued", "running"}, started["status"])
+
+        # A second solve on the same machine would fight the first for cores.
+        r = c.post(f"{API}/timetable/jobs", headers=A, json=job_opts)
+        check("a concurrent solve is refused (409)", r.status_code == 409,
+              str(r.status_code))
+
+        deadline = time.monotonic() + 120
+        job = None
+        while time.monotonic() < deadline:
+            time.sleep(2)
+            r = c.get(f"{API}/timetable/jobs/{job_id}", headers=A)
+            if r.status_code != 200:
+                break
+            job = r.json()
+            if job["status"] in {"done", "failed"}:
+                break
+
+        if not check("the job finished", job is not None and job["status"] == "done",
+                     job["status"] if job else f"HTTP {r.status_code}"):
+            return 1
+
+        check("no error recorded", job["error"] is None, str(job["error"]))
+        check("the result carries the solve outcome",
+              isinstance(job["result"], dict) and "version_id" in job["result"])
+        check("it wrote a version", bool(job["result"]["version_id"]))
+        check("and left the live timetable alone",
+              job["result"]["activated"] is False)
+
+        live = sb.table("timetable_versions").select("id").eq(
+            "is_active", True).execute().data
+        check("the published timetable is still the one from step 3",
+              len(live) == 1 and live[0]["id"] == version_id)
+
+        r = c.get(f"{API}/timetable/jobs", headers=A)
+        check("the job appears in the job list", r.status_code == 200
+              and any(j["job_id"] == job_id for j in r.json()))
+
+        r = c.get(f"{API}/timetable/jobs/00000000-0000-0000-0000-000000000000",
+                  headers=A)
+        check("an unknown job is a 404", r.status_code == 404, str(r.status_code))
+
+        # Housekeeping: the job's draft version is not wanted on the shelf.
+        sb.table("timetable_entries").delete().eq(
+            "version_id", job["result"]["version_id"]).execute()
+        sb.table("timetable_versions").delete().eq(
+            "id", job["result"]["version_id"]).execute()
 
     print(f"\n{'=' * 60}")
     print(f"{passed} passed, {failed} failed")

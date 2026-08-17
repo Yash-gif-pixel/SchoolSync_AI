@@ -16,10 +16,15 @@ from pydantic import BaseModel
 
 from ..auth import CurrentUser, get_current_user
 from ..db import admin
+from ..services.storage import signed_urls
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 
 PAGE_SIZE = 1000
+
+# Mirrors directory.PHOTO_BUCKET. Named here rather than imported so the two
+# routers do not depend on each other for a constant.
+PHOTO_BUCKET = "student-photos"
 
 
 class Mark(BaseModel):
@@ -223,6 +228,11 @@ def roster(
     cls = (admin().table("classes").select("name")
            .eq("id", class_id).maybe_single().execute())
 
+    # `photo_url` on the row is a path inside a private bucket, which a
+    # browser cannot load. One batch call signs the whole class; signing each
+    # in turn put 45 sequential round trips in front of the register.
+    photos = signed_urls(PHOTO_BUCKET, [s.get("photo_url") for s in students])
+
     return {
         "class_id": class_id,
         "class_name": cls.data["name"] if cls and cls.data else "?",
@@ -230,7 +240,11 @@ def roster(
         "date": day.isoformat(),
         "already_marked": bool(existing),
         "students": [
-            {**s, "status": existing.get(s["id"], "present")}
+            {
+                **s,
+                "photo_url": photos.get(s.get("photo_url")),
+                "status": existing.get(s["id"], "present"),
+            }
             for s in students
         ],
     }

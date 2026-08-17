@@ -364,6 +364,12 @@ def forecast(
                 continue
             needed = int(round(required * avg_load))
             if needed > school_free * EVENT_SLACK_SHARE:
+                # A school with no free periods at all is a real state — no
+                # teacher has a department yet, or the timetable is published
+                # but nobody is on it — and dividing by it turned the whole
+                # forecast endpoint into a 500. Say "all of it" instead.
+                share = (round(needed / school_free * 100) if school_free
+                         else 100)
                 cards.append({
                     "severity": "critical",
                     "date": day.isoformat(),
@@ -375,7 +381,7 @@ def forecast(
                     "because": (
                         f"Covering their lessons needs about {needed} periods "
                         f"against {school_free} free across the whole school that "
-                        f"day — {round(needed / school_free * 100)}% of all slack. "
+                        f"day — {share}% of all slack. "
                         f"Arrange cover in advance, not on the day."
                     ),
                 })

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from ..auth import CurrentUser, get_current_user, require_admin
 from ..db import admin
 from ..services.document_ai import discover_template
+from ..services.storage import signed_url
 from ..services.templates import FIELD_TYPES, TARGET_COLUMNS, TARGETS, validate_definition
 
 router = APIRouter(prefix="/templates", tags=["templates"])
@@ -109,13 +110,7 @@ async def discover(
         )
 
     proposal["sample_path"] = path
-    try:
-        res = admin().storage.from_(BUCKET).create_signed_url(path, 3600)
-        proposal["sample_url"] = (
-            res.get("signedURL") or res.get("signedUrl") or res.get("signed_url")
-        )
-    except Exception:
-        proposal["sample_url"] = None
+    proposal["sample_url"] = signed_url(BUCKET, path)
 
     # Surface problems now so the editor can show them before saving.
     proposal["definition_errors"] = validate_definition(

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../core/operations_repository.dart';
 import '../models/operations.dart';
-import '../screens/attendance_screen.dart';
 import '../theme/app_theme.dart';
 import 'ui/primitives.dart';
 
@@ -12,16 +12,13 @@ class TodayPeriodsCard extends ConsumerWidget {
   const TodayPeriodsCard({super.key});
 
   Future<void> _open(BuildContext context, WidgetRef ref, TodayPeriod p) async {
-    final msg = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => AttendanceScreen(
-          classId: p.classId,
-          slotId: p.slotId,
-          className: p.className,
-          subjectName: p.subjectName,
-        ),
-      ),
+    // The class and slot identify the register; the names ride along only so
+    // the title bar is right before the roster arrives.
+    final uri = Uri(
+      path: '/attendance/${p.classId}/${p.slotId}',
+      queryParameters: {'class': p.className, 'subject': p.subjectName},
     );
+    final msg = await context.push<String>(uri.toString());
     ref.invalidate(periodsTodayProvider);
     if (msg != null && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

@@ -1,27 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/navigation.dart';
 import '../core/operations_repository.dart';
 import '../models/operations.dart';
+import '../widgets/student_avatar.dart';
 
 /// Attendance for one period.
 ///
 /// In a class of 45, roughly 42 are present. Reading 45 names to find 3
 /// absentees is the wrong shape of work, so everyone arrives marked present
 /// and the teacher taps only the empty desks. One submit for the whole class.
+///
+/// Addressable as `/attendance/<classId>/<slotId>`. The class and subject
+/// names are passed as query parameters when the teacher taps through from
+/// their day, purely so the title is right before the roster arrives — the
+/// screen loads everything it actually needs from the two path segments, so
+/// the URL survives a refresh in the middle of taking a register.
 class AttendanceScreen extends ConsumerStatefulWidget {
   const AttendanceScreen({
     super.key,
     required this.classId,
     required this.slotId,
-    required this.className,
-    required this.subjectName,
+    this.className,
+    this.subjectName,
   });
 
   final String classId;
   final String slotId;
-  final String className;
-  final String subjectName;
+  final String? className;
+  final String? subjectName;
 
   @override
   ConsumerState<AttendanceScreen> createState() => _AttendanceScreenState();
@@ -84,7 +92,9 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
             students: r.students,
           );
       ref.invalidate(periodsTodayProvider);
-      if (mounted) Navigator.of(context).pop(msg);
+      if (mounted) {
+        closeScreen(context, fallback: '/teacher-portal', result: msg);
+      }
     } catch (e) {
       setState(() => _error = '$e'.replaceFirst('Exception: ', ''));
     } finally {
@@ -101,9 +111,16 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     final late = r?.students.where((s) => s.status == AttendanceStatus.late).length ?? 0;
     final present = (r?.students.length ?? 0) - absent - late;
 
+    // On a cold deep link neither name is in the URL, so fall back to what the
+    // roster itself reports rather than heading the page "null · null".
+    final heading = [
+      widget.className ?? r?.className,
+      widget.subjectName,
+    ].whereType<String>().join(' · ');
+
     return Scaffold(
       appBar: AppBar(
-        title: Text('${widget.className} · ${widget.subjectName}'),
+        title: Text(heading.isEmpty ? 'Attendance' : heading),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(34),
           child: Container(
@@ -261,19 +278,14 @@ class _StudentTile extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Stack(children: [
-                CircleAvatar(
-                  radius: 19,
-                  backgroundColor: colour.withValues(alpha: 0.18),
-                  child: Text(
-                    student.initials,
-                    style: TextStyle(
-                      color: colour,
-                      fontWeight: FontWeight.w700,
-                      // Absent pupils are visually struck out, so a glance at
-                      // the grid shows who is missing.
-                      decoration: dimmed ? TextDecoration.lineThrough : null,
-                    ),
-                  ),
+                // A face where there is one. A teacher covering a class they
+                // have never taught cannot match 45 names to 45 desks, and
+                // that is exactly the lesson attendance matters most in.
+                StudentAvatar(
+                  initials: student.initials,
+                  photoUrl: student.photoUrl,
+                  tint: colour,
+                  struckThrough: dimmed,
                 ),
                 Positioned(
                   right: -1,

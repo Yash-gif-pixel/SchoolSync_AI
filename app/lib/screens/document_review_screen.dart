@@ -1,14 +1,58 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../core/dates.dart';
 import '../core/documents_repository.dart';
+import '../core/navigation.dart';
 import '../core/school.dart';
 import '../models/document_template.dart';
 import '../models/extracted_document.dart';
 import '../theme/app_theme.dart';
 import '../widgets/review_field_row.dart';
 import '../widgets/ui/primitives.dart';
+
+/// `/documents/<id>` — the review screen, addressable by URL.
+///
+/// The screen itself needs a whole document; a URL carries only an id. This
+/// resolves one to the other so a reviewer can bookmark a form, send a
+/// colleague the link, or refresh the page mid-review without being thrown
+/// back to the queue.
+class DocumentReviewRoute extends ConsumerWidget {
+  const DocumentReviewRoute({super.key, required this.documentId});
+
+  final String documentId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref.watch(documentProvider(documentId)).when(
+          loading: () => const Scaffold(
+            body: Center(child: Padding(
+              padding: EdgeInsets.all(AppSpace.xl),
+              child: SlowLoader(),
+            )),
+          ),
+          error: (e, _) => Scaffold(
+            appBar: AppBar(title: const Text('Review')),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpace.xl),
+                child: EmptyState(
+                  icon: Icons.description_outlined,
+                  title: 'That form could not be opened',
+                  message: '$e'.replaceFirst('Exception: ', ''),
+                  action: FilledButton(
+                    onPressed: () => context.go('/documents'),
+                    child: const Text('Back to the queue'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          data: (doc) => DocumentReviewScreen(document: doc),
+        );
+  }
+}
 
 /// Side-by-side review: the photograph on the left, what the AI read on the
 /// right. Field order, labels and types all come from the template, so a
@@ -119,7 +163,10 @@ class _DocumentReviewScreenState extends ConsumerState<DocumentReviewScreen> {
           .read(documentsRepositoryProvider)
           .commit(widget.document.id, _payload);
       ref.invalidate(documentQueueProvider);
-      if (mounted) Navigator.of(context).pop(message);
+      ref.invalidate(documentProvider(widget.document.id));
+      if (mounted) {
+        closeScreen(context, fallback: '/documents', result: message);
+      }
     } catch (e) {
       setState(() => _error = '$e'.replaceFirst('Exception: ', ''));
     } finally {
@@ -246,8 +293,9 @@ class _DocumentReviewScreenState extends ConsumerState<DocumentReviewScreen> {
                 constraints: BoxConstraints(maxWidth: bar.maxWidth),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   TextButton(
-                    onPressed:
-                        _committing ? null : () => Navigator.of(context).pop(),
+                    onPressed: _committing
+                        ? null
+                        : () => closeScreen(context, fallback: '/documents'),
                     child: const Text('Cancel'),
                   ),
                   const SizedBox(width: AppSpace.sm),

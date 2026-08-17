@@ -56,6 +56,7 @@ def find_substitutes(
     teachers: list[dict],
     other_absences: dict[dt.date, set[str]],
     event_commitments: dict[dt.date, dict[str, str]] | None = None,
+    existing_cover: dict[dt.date, set[tuple[str, str]]] | None = None,
     max_per_period: int = 3,
 ) -> list[dict]:
     """Suggestions for every period the absent teacher would have taught.
@@ -66,8 +67,14 @@ def find_substitutes(
     `event_commitments` maps a date to {teacher_id: event name} — somebody
     rehearsing for Annual Day is in the building but is not available to
     cover, and suggesting them is worse than admitting there is no cover.
+    `existing_cover` maps a date to the (teacher, slot) pairs already
+    confirmed. **A free period is only free once.** Two teachers off sick on
+    the same Tuesday are two separate runs of this function, and without this
+    both of them are offered the one colleague who happens to be free in
+    period 3 — who is then confirmed twice and expected in two rooms at once.
     """
     events = event_commitments or {}
+    covering = existing_cover or {}
     teacher_by_id = {t["id"]: t for t in teachers}
     absent = teacher_by_id.get(absent_teacher_id, {})
     absent_dept = absent.get("department_id")
@@ -92,6 +99,7 @@ def find_substitutes(
             | set(on_duty_today)
             | {absent_teacher_id}
         )
+        covering_today = covering.get(date, set())
 
         for period in [r for r in mine if r["day_of_week"] == dow]:
             candidates: list[Candidate] = []
@@ -101,6 +109,9 @@ def find_substitutes(
                 if tid in away_today:
                     continue
                 if busy.get((tid, period["slot_id"])):
+                    continue
+                if (tid, period["slot_id"]) in covering_today:
+                    # Already standing in for somebody else this period.
                     continue
 
                 same_dept = (

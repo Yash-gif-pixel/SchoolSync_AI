@@ -593,6 +593,127 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     });
+
+    // One month at a time. The heading used to be a single centred line
+    // holding BOTH month names, stretched across the full width while the
+    // grids started at the left edge — so the names sat over the wrong months
+    // with a gap beside them. Comparing against the grid rather than against
+    // fixed coordinates keeps this meaningful if the layout is retuned.
+    for (final width in [1180.0, 760.0, 380.0]) {
+      testWidgets('one month, named over its grid, at ${width.toInt()}px',
+          (tester) async {
+        await pumpInScroll(
+          tester,
+          ExamCalendar(
+            initialMonth: DateTime(2026, 8),
+            sittings: const [],
+            onPickDay: (_) {},
+          ),
+          width: width,
+        );
+
+        expect(find.byType(GridView), findsOneWidget);
+        expect(find.text('August 2026'), findsOneWidget);
+        expect(find.text('September 2026'), findsNothing);
+        expect(
+          tester.getCenter(find.text('August 2026')).dx,
+          closeTo(tester.getCenter(find.byType(GridView)).dx, 1.0),
+          reason: 'the month name is not centred over its grid',
+        );
+      });
+    }
+
+    testWidgets('the arrows page one month at a time', (tester) async {
+      await pumpInScroll(
+        tester,
+        ExamCalendar(
+          initialMonth: DateTime(2026, 8),
+          sittings: const [],
+          onPickDay: (_) {},
+        ),
+      );
+
+      await tester.tap(find.byTooltip('Next month'));
+      await tester.pumpAndSettle();
+      expect(find.text('September 2026'), findsOneWidget);
+      expect(find.text('August 2026'), findsNothing);
+
+      // Back across the turn of the year, since December + 1 is where month
+      // arithmetic usually goes wrong.
+      for (var i = 0; i < 9; i++) {
+        await tester.tap(find.byTooltip('Previous month'));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('December 2025'), findsOneWidget);
+    });
+
+    testWidgets('offers the months holding the rest of the season',
+        (tester) async {
+      // Showing one month risks hiding half a season that straddles the turn
+      // of a month. Rather than a second grid, the calendar says where the
+      // other days are — which also covers months further off than next.
+      await pumpInScroll(
+        tester,
+        ExamCalendar(
+          initialMonth: DateTime(2026, 9),
+          sittings: [
+            sitting(9, [1]),
+            Sitting(
+                id: 'earlier',
+                sitsOn: DateTime(2026, 7, 3),
+                grades: const [2]),
+            Sitting(
+                id: 'later',
+                sitsOn: DateTime(2026, 11, 4),
+                grades: const [3]),
+            Sitting(
+                id: 'later2',
+                sitsOn: DateTime(2026, 11, 5),
+                grades: const [3]),
+          ],
+          onPickDay: (_) {},
+        ),
+      );
+
+      // Nearest either side, not every month with something on it.
+      expect(find.text('1 day in Jul'), findsOneWidget);
+      expect(find.text('2 days in Nov'), findsOneWidget);
+
+      await tester.tap(find.text('2 days in Nov'));
+      await tester.pumpAndSettle();
+      expect(find.text('November 2026'), findsOneWidget);
+      // Now that November is on screen, September is the one behind us.
+      expect(find.text('1 day in Sep'), findsOneWidget);
+    });
+
+    testWidgets('the year is shown only when it differs', (tester) async {
+      await pumpInScroll(
+        tester,
+        ExamCalendar(
+          initialMonth: DateTime(2027, 1),
+          sittings: [
+            Sitting(
+                id: 'x', sitsOn: DateTime(2026, 12, 8), grades: const [1]),
+          ],
+          onPickDay: (_) {},
+        ),
+      );
+      expect(find.text('1 day in Dec 2026'), findsOneWidget);
+    });
+
+    testWidgets('says nothing when the season fits in one month',
+        (tester) async {
+      await pumpInScroll(
+        tester,
+        ExamCalendar(
+          initialMonth: DateTime(2026, 9),
+          sittings: [sitting(9, [1]), sitting(10, [2])],
+          onPickDay: (_) {},
+        ),
+      );
+      expect(find.textContaining('day in'), findsNothing);
+      expect(find.textContaining('days in'), findsNothing);
+    });
   });
 
   // A seat grid is a Row inside a horizontal scroll view — the same family as
