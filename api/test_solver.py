@@ -1,10 +1,15 @@
 """Exercise the timetable solver against the live school data.
 
     python test_solver.py            # solve the real school
+    python test_solver.py --fixture  # ...or an offline replica of it
     python test_solver.py --stress   # also run the over-committed fixture
 
 Checks correctness properly: no teacher or class double-booked, every
 curriculum requirement met, lab capacity respected.
+
+`--fixture` needs no database and no credentials. `solve()` is a pure
+function — a dict in, entries out — so requiring a seeded Supabase project
+to test it was a prerequisite it never actually had. See school_fixture.py.
 """
 
 from __future__ import annotations
@@ -17,8 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.routers.timetable import load_school  # noqa: E402
-from app.services.timetable import solve  # noqa: E402
+from app.services.timetable import DEFAULT_TIME_LIMIT, solve  # noqa: E402
 
 GREEN, RED, AMBER, GREY, RESET = "\033[92m", "\033[91m", "\033[93m", "\033[90m", "\033[0m"
 
@@ -135,15 +139,29 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--stress", action="store_true",
                     help="also run a deliberately over-committed fixture")
-    ap.add_argument("--time-limit", type=float, default=20.0)
+    ap.add_argument("--fixture", action="store_true",
+                    help="use the offline school instead of the database")
+    # Must match the production default. A smaller budget clamps phase 1
+    # below the ~14.5s this school needs to pack, so the relaxed fallback runs
+    # instead and roughly ninety periods go unplaced — which then reads as a
+    # solver regression rather than as the test asking for the wrong thing.
+    ap.add_argument("--time-limit", type=float, default=DEFAULT_TIME_LIMIT)
     ap.add_argument("--no-gaps", action="store_true",
                     help="skip the gap-minimising objective")
     args = ap.parse_args()
 
-    print("Loading school…")
-    data = load_school()
-    print(f"  {len(data['classes'])} classes, {len(data['teachers'])} teachers, "
-          f"{len(data['assignments'])} assignments, {len(data['slots'])} teaching slots")
+    if args.fixture:
+        from school_fixture import build_school, describe
+        print("Building the offline school…")
+        data = build_school()
+        print(f"  {describe(data)}")
+    else:
+        from app.routers.timetable import load_school
+        print("Loading school…")
+        data = load_school()
+        print(f"  {len(data['classes'])} classes, {len(data['teachers'])} teachers, "
+              f"{len(data['assignments'])} assignments, "
+              f"{len(data['slots'])} teaching slots")
 
     result = solve(data, time_limit=args.time_limit, optimise_gaps=not args.no_gaps)
     report(result, "REAL SCHOOL")

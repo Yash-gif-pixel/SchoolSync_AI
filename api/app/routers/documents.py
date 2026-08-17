@@ -24,6 +24,7 @@ from ..db import admin
 from ..services.document_ai import extract as run_extraction
 from ..services.leave_rules import describe_clash, overlapping_leave
 from ..services.people import resolve_person
+from ..services.storage import signed_url
 from ..services.validation import validate
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -34,23 +35,13 @@ MAX_BYTES = 12 * 1024 * 1024
 
 
 # --------------------------------------------------------------- helpers
-def _signed_url(path: str | None, seconds: int = 3600) -> str | None:
-    if not path:
-        return None
-    try:
-        res = admin().storage.from_(BUCKET).create_signed_url(path, seconds)
-        return res.get("signedURL") or res.get("signedUrl") or res.get("signed_url")
-    except Exception:
-        return None
-
-
 def _mean_confidence(fields: list[dict]) -> float:
     vals = [f["confidence"] for f in fields if f.get("present_on_form")]
     return round(statistics.fmean(vals), 3) if vals else 0.0
 
 
 def _with_url(row: dict) -> dict:
-    return {**row, "image_url": _signed_url(row.get("storage_path"))}
+    return {**row, "image_url": signed_url(BUCKET, row.get("storage_path"))}
 
 
 def _load_template(template_id: str | None) -> dict:

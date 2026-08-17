@@ -41,32 +41,55 @@ from .templates import (
 
 log = logging.getLogger(__name__)
 
-# Free-tier quota is per model per day, and it is TIGHT — gemini-3.6-flash
-# allows only 20 requests/day. One afternoon of testing exhausts it, and a
-# demo that dies on a 429 is worse than a slightly weaker model.
+# Free-tier quota is per model per day, and it is TIGHT — the newest flash
+# model allows only 20 requests/day. One afternoon of testing exhausts it, and
+# a demo that dies on a 429 is worse than a slightly weaker model.
 #
 # So: an ordered chain rather than a single pin. On a quota error we move to
 # the next model, which has its own separate allowance. Models are pinned by
 # version rather than using the `gemini-flash-latest` alias, because an alias
 # can shift under a demo.
-MODEL_CHAIN = [
+#
+# Every entry must be a CURRENT vision model. Google retires tags — the 2.0
+# generation was shut down, and a chain whose last resort is a dead tag has no
+# last resort at all; it just spends a round trip discovering that. Overridable
+# with GEMINI_MODELS (comma-separated) so the next retirement is a config
+# change rather than a deploy.
+DEFAULT_MODEL_CHAIN = [
     "gemini-3.5-flash",        # primary: strong on handwriting
-    "gemini-3.6-flash",        # newest, but only 20/day free
+    "gemini-3.6-flash",        # newer generation, tighter free allowance
     "gemini-3.1-flash-lite",   # lighter, larger allowance
-    "gemini-2.0-flash",        # last resort, still handles vision + schemas
+    "gemini-2.5-flash",        # last resort, still current and reads images
 ]
 
-#: The model that served the most recent call, for reporting.
-MODEL = MODEL_CHAIN[0]
+
+def _model_chain() -> list[str]:
+    override = get_settings().gemini_models
+    return override or DEFAULT_MODEL_CHAIN
+
+
+#: Kept as a module attribute because tests and the README refer to it.
+MODEL_CHAIN = DEFAULT_MODEL_CHAIN
 
 
 class AllModelsExhausted(RuntimeError):
-    """Every model in the chain returned a quota error."""
+    """No model in the chain could be reached."""
 
 
 def _is_quota_error(e: Exception) -> bool:
     text = str(e)
     return "RESOURCE_EXHAUSTED" in text or "429" in text
+
+
+def _is_missing_model(e: Exception) -> bool:
+    """A tag this project knows about that Google no longer serves.
+
+    Worth distinguishing from a quota error even though both fall through to
+    the next model: a retired tag never comes back, so it is logged loudly
+    enough to get the list edited, whereas a 429 resets at midnight.
+    """
+    text = str(e)
+    return "NOT_FOUND" in text or "404" in text or "is not found for API version" in text
 
 
 @lru_cache
@@ -94,23 +117,46 @@ def _generate(image_bytes: bytes, mime_type: str, prompt: str, schema: dict) -> 
         temperature=0.0,
     )
 
-    tried: list[str] = []
-    for model in MODEL_CHAIN:
+    chain = _model_chain()
+    exhausted: list[str] = []
+    retired: list[str] = []
+
+    for model in chain:
         try:
             resp = _client().models.generate_content(
                 model=model, contents=contents, config=config
             )
             return json.loads(resp.text), model
         except Exception as e:
-            if not _is_quota_error(e):
+            if _is_quota_error(e):
+                exhausted.append(model)
+                log.warning("Quota exhausted on %s, falling back", model)
+            elif _is_missing_model(e):
+                retired.append(model)
+                log.error(
+                    "Model %s no longer exists — remove it from the chain in "
+                    "document_ai.py or set GEMINI_MODELS", model,
+                )
+            else:
+                # A bad image, a malformed schema, a network failure: real
+                # errors that the next model would fail on identically. Falling
+                # through would turn one clear message into four round trips
+                # and a misleading "quota exhausted".
                 raise
-            tried.append(model)
-            log.warning("Quota exhausted on %s, falling back", model)
 
+    detail = []
+    if exhausted:
+        detail.append(
+            f"quota exhausted on {', '.join(exhausted)} (it resets daily, or "
+            f"add billing to the Google AI Studio project for higher limits)"
+        )
+    if retired:
+        detail.append(
+            f"{', '.join(retired)} no longer exist — update MODEL_CHAIN in "
+            f"api/app/services/document_ai.py, or set GEMINI_MODELS"
+        )
     raise AllModelsExhausted(
-        "Gemini free-tier quota is exhausted on every configured model "
-        f"({', '.join(tried)}). It resets daily — or add billing to the "
-        "Google AI Studio project for higher limits."
+        "No Gemini model could read this document: " + "; ".join(detail) + "."
     )
 
 

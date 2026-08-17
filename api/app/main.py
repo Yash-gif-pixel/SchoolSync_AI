@@ -140,6 +140,14 @@ def health_db() -> dict:
 
 @app.get("/me", tags=["auth"])
 def me(user: CurrentUser = Depends(get_current_user)) -> dict:
+    """Who the caller is, and every post they hold.
+
+    All four responsibility flags are returned, not just `is_approver`. Leave
+    routes on them — a head of department's own leave goes to the Vice
+    Principal, and theirs to the Principal — so a client that can only see
+    `is_approver` cannot tell which queue to show, and has no way to find out
+    short of querying `profiles` directly and defeating the point of /me.
+    """
     return {
         "id": user.id,
         "email": user.email,
@@ -147,4 +155,7 @@ def me(user: CurrentUser = Depends(get_current_user)) -> dict:
         "role": user.role,
         "department_id": user.department_id,
         "is_approver": user.is_approver,
+        "is_vice_principal": user.is_vice_principal,
+        "is_principal": user.is_principal,
+        "is_admin": user.is_admin,
     }

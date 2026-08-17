@@ -119,6 +119,13 @@ only 20 requests/day. `MODEL_CHAIN` in `document_ai.py` tries models in order
 and falls through on a quota error, since each has its own allowance. The
 document records which model actually answered.
 
+It also falls through when Google has retired a tag outright, because that is
+the other way a pinned model stops answering — the 2.0 generation was shut
+down, and a chain whose last resort is a dead tag has no last resort. Set
+`GEMINI_MODELS` in `api/.env` to replace the chain without touching code.
+Anything else — a corrupt image, a bad schema — is raised immediately rather
+than retried against three more models that would fail identically.
+
 ### Review UI
 
 The photograph sits beside the extracted fields, every value editable,
@@ -283,10 +290,39 @@ So strict packing is switched off whenever preflight has found an
 impossibility, and there is an automatic relaxed retry if a strict solve comes
 back infeasible for a reason the arithmetic missed.
 
+### The budget is not a knob
+
+`DEFAULT_TIME_LIMIT` is 45 seconds and the two halves of the solve share it.
+Feasible packing of this school takes about 14.5 s on its own, and phase 1 is
+given `min(limit, max(12, limit × 0.4))` — so at a 20-second budget phase 1 is
+clamped to 12 s, times out, and the relaxed fallback runs instead, publishing a
+timetable with roughly ninety periods missing from it. Anything that calls the
+solver therefore passes 45, including the client and the tests. Lowering it
+does not make generation faster; it makes it wrong.
+
+### Generation does not hold the request open
+
+45 seconds is longer than several proxies will keep a connection alive, and
+the client that gets cut has no way to find out that the solve finished
+anyway — it usually did. So the browser posts to `/timetable/jobs`, gets a job
+id back at once, and polls `/timetable/jobs/{id}` every couple of seconds.
+Every request is short whatever the solver does.
+
+`POST /timetable/generate` still exists and still blocks until the answer is
+ready, which is what a script over a LAN wants. Both refuse to start a second
+solve while one is running: two CP-SAT runs on one small container take each
+other's cores and both miss their budget.
+
+The job registry is **in the process** — `app/services/jobs.py`. Jobs do not
+survive a restart and a second replica cannot see them, which fits one
+container on Render and nothing larger. A client polling a job that has been
+forgotten gets a 404 and is told to look at `/timetable/versions`, where a
+solve that did finish has left its version behind.
+
 ```powershell
 cd api
 ..\.venv\Scripts\python.exe test_solver.py --stress   # solver + over-committed fixture
-..\.venv\Scripts\python.exe test_e2e_timetable.py     # 31 API checks
+..\.venv\Scripts\python.exe test_e2e_timetable.py     # API checks, both paths
 ```
 
 ---
@@ -300,6 +336,41 @@ is the wrong shape of work. The roster therefore arrives with **everyone
 already marked present** and the teacher taps only the empty desks; tapping
 cycles present → absent → late. One bulk write covers the class, and reopening
 a period shows what was recorded rather than resetting to the default.
+
+### Faces, not initials
+
+A register that shows forty-five coloured circles with initials in them is of
+no use to the person who most needs it: a teacher covering a class they have
+never taught. `students.photo_url` existed from the first migration and
+nothing wrote to it, so that is what every register showed.
+
+Photos are uploaded from the student roll, admin only. The server squares the
+image, applies the phone's rotation flag to the pixels and then discards all
+metadata — EXIF on a phone photo routinely carries the GPS coordinates it was
+taken at, and a directory of children's portraits tagged with their home
+addresses is not a thing to keep. A 12 MB upload becomes a 320 px JPEG of a
+few kilobytes, which is what a 38 px circle actually needs.
+
+They live in their own private bucket, not alongside the scanned documents:
+the documents bucket lets any authenticated user read the whole of it, the
+object path here is the student's id and therefore guessable, and nothing
+reaches this bucket directly at all. Every read is a short-lived signed URL the
+API mints after checking who is asking. If one expires while a register is left
+open on a desk, the tile falls back to initials rather than a broken image.
+
+### One free period covers one absence
+
+Two teachers off sick on the same Tuesday are two separate runs of the matcher.
+Without knowing what has already been committed, both runs offer up the one
+colleague who happens to be free in period 3 — and an admin working down the
+board confirms them twice, leaving a teacher due in two rooms at once.
+
+So the matcher is given the cover already confirmed in the window, and
+confirming re-checks from scratch: not already covering that period, not
+teaching their own class then, not on leave that day. The suggestion may be
+days old, the timetable may have been regenerated since, and the admin may
+override the suggested name with anybody at all — the check belongs at the
+moment it becomes a commitment.
 
 ### No overlapping leave
 
@@ -527,6 +598,25 @@ app/            Flutter Web client
 db/             SQL migrations — apply in the Supabase SQL editor, in order
 ```
 
+### Every screen has a URL
+
+Including the ones inside another screen. Reviewing a form is
+`/documents/<id>`, taking a register is `/attendance/<class>/<slot>`, editing a
+template is `/templates/<id>/edit`, and each loads everything it needs from
+the path alone.
+
+That matters more on the web than it sounds. These were pushed imperatively
+with `Navigator.push`, which gives the pushed screen no address of its own — so
+a refresh, a browser Back, or a link sent to a colleague all landed on the
+parent list, losing the form somebody was halfway through checking. Guards
+follow the section, not the exact path: `/documents/<id>` is as much an admin
+screen as `/documents`, and matching exactly let a detail URL be typed straight
+past the check.
+
+The one thing a URL cannot restore is an unsaved AI draft: a template proposal
+exists only in memory, so refreshing `/templates/new` opens an empty editor
+rather than throwing, and the blank form can be scanned again.
+
 ---
 
 ## The seeded school
@@ -720,6 +810,7 @@ in filename order. All are idempotent and safe to re-run.
 | `008_events.sql` | multi-day events with a named staff roster |
 | `009_vice_principal.sql` | `is_vice_principal` |
 | `010_principal.sql` | `is_principal` |
+| `011_student_photos.sql` | a private bucket for student portraits |
 
 Two are not purely additive and are called out in their own headers:
 

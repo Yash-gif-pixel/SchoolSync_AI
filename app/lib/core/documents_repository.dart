@@ -132,3 +132,15 @@ final documentQueueProvider =
   ref.watch(currentUserIdProvider);
   return ref.read(documentsRepositoryProvider).list();
 });
+
+/// One document with its signed image URL, by id.
+///
+/// The queue listing carries no signed URL, so the review screen needs the
+/// full record. Fetching it by id here — rather than handing the object to a
+/// pushed route — is what lets `/documents/<id>` be opened cold: from a
+/// bookmark, a shared link, or a browser refresh.
+final documentProvider =
+    FutureProvider.family<ExtractedDocument, String>((ref, id) async {
+  ref.watch(currentUserIdProvider);
+  return ref.read(documentsRepositoryProvider).get(id);
+});

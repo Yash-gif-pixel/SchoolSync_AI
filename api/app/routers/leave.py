@@ -145,6 +145,38 @@ def _event_commitments(
     return out
 
 
+def _confirmed_cover(start: dt.date, end: dt.date,
+                     exclude_leave_id: str | None = None
+                     ) -> dict[dt.date, set[tuple[str, str]]]:
+    """Cover already committed in the window, as (teacher, slot) per date.
+
+    A teacher's free period can only be given away once. Each approval runs
+    the matcher on its own, so without this two absences on the same day both
+    get offered the one colleague free in period 3.
+
+    The leave being rematched is excluded: its own suggestions are about to be
+    deleted and rebuilt, and counting them would rule out the very people who
+    were correctly chosen last time.
+    """
+    rows = (admin().table("substitutions")
+            .select("date, substitute_teacher_id, leave_request_id, "
+                    "timetable_entries(slot_id)")
+            .eq("status", "confirmed")
+            .gte("date", start.isoformat())
+            .lte("date", end.isoformat())
+            .execute().data or [])
+
+    out: dict[dt.date, set[tuple[str, str]]] = defaultdict(set)
+    for r in rows:
+        if exclude_leave_id and r.get("leave_request_id") == exclude_leave_id:
+            continue
+        slot = (r.get("timetable_entries") or {}).get("slot_id")
+        teacher = r.get("substitute_teacher_id")
+        if slot and teacher:
+            out[dt.date.fromisoformat(r["date"])].add((teacher, slot))
+    return out
+
+
 def _run_matcher(leave: dict) -> list[dict]:
     """Generate and persist substitution suggestions for an approved leave."""
     start = dt.date.fromisoformat(leave["from_date"])
@@ -166,6 +198,7 @@ def _run_matcher(leave: dict) -> list[dict]:
         teachers=teachers,
         other_absences=_absences_by_date(start, end, exclude_id=leave["id"]),
         event_commitments=_event_commitments(start, end),
+        existing_cover=_confirmed_cover(start, end, exclude_leave_id=leave["id"]),
     )
 
     # Replace any earlier run for this leave so re-approval is idempotent.

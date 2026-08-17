@@ -7,3 +7,10 @@ ortools==9.15.6755
 pandas==3.0.3
 google-genai==2.16.0
 python-multipart==0.0.20
+
+# Renders the stand-in forms the document tests read when ../samples is empty
+# (sample_forms.py). Those scans are real children's paperwork and are
+# gitignored, so without this a fresh clone cannot run the document suites at
+# all — and the failure looks like a missing fixture rather than a missing
+# package.
+pillow==12.1.1

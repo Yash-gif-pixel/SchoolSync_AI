@@ -5,9 +5,15 @@ import '../theme/app_theme.dart';
 
 /// A month grid for picking exam days.
 ///
-/// Two months at a time on a wide screen, because an exam season routinely
-/// straddles the turn of a month and paging back and forth to see both halves
-/// is how a date gets missed.
+/// **One month at a time**, paged with the arrows either side of its name.
+///
+/// It used to show two side by side on a wide screen, on the reasoning that an
+/// exam season often straddles the turn of a month and paging back and forth
+/// is how a date gets missed. One column is clearer, so the risk that argued
+/// for two is handled directly instead: if the season has days in a month you
+/// are not looking at, the calendar says so underneath and offers to take you
+/// there. That is better than the second grid ever was, because it also points
+/// at months that are further away than next.
 ///
 /// Days already booked show the grades sitting that day. Tapping any day hands
 /// it back so the caller can add or edit a sitting.
@@ -43,13 +49,29 @@ class _ExamCalendarState extends State<ExamCalendar> {
   void _shift(int months) => setState(
       () => _anchor = DateTime(_anchor.year, _anchor.month + months));
 
+  /// The nearest month either side of the one on screen that has exam days on
+  /// it, so the calendar can offer to go there.
+  (DateTime?, DateTime?) get _neighbouringMonths {
+    DateTime? before, after;
+    for (final s in widget.sittings) {
+      final m = DateTime(s.sitsOn.year, s.sitsOn.month);
+      if (m.isBefore(_anchor)) {
+        if (before == null || m.isAfter(before)) before = m;
+      } else if (m.isAfter(_anchor)) {
+        if (after == null || m.isBefore(after)) after = m;
+      }
+    }
+    return (before, after);
+  }
+
+  int _daysIn(DateTime month) => widget.sittings
+      .where((s) =>
+          s.sitsOn.year == month.year && s.sitsOn.month == month.month)
+      .length;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final wide = MediaQuery.sizeOf(context).width >= 720;
-    final months = wide
-        ? [_anchor, DateTime(_anchor.year, _anchor.month + 1)]
-        : [_anchor];
 
     // Sittings keyed by day, so a cell does one lookup instead of scanning.
     final byDay = <DateTime, List<Sitting>>{};
@@ -58,58 +80,185 @@ class _ExamCalendarState extends State<ExamCalendar> {
       byDay.putIfAbsent(key, () => []).add(s);
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left_rounded),
-            tooltip: 'Previous month',
-            onPressed: () => _shift(-1),
-          ),
-          Expanded(
-            child: Text(
-              months.map(_monthLabel).join('   ·   '),
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleSmall,
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right_rounded),
-            tooltip: 'Next month',
-            onPressed: () => _shift(1),
-          ),
-        ]),
-        const SizedBox(height: AppSpace.sm),
+    final (before, after) = _neighbouringMonths;
 
-        // Months side by side on a wide screen. Wrap rather than Row so the
-        // second month drops below instead of overflowing at awkward widths.
-        Wrap(
-          spacing: AppSpace.xl,
-          runSpacing: AppSpace.lg,
+    // Centred rather than left-aligned: one grid in a full-width card looks
+    // stranded against the left edge, and the heading is centred on the grid
+    // either way, which is the thing that was wrong before.
+    return Center(
+      child: SizedBox(
+        width: _monthWidth,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            for (final m in months)
-              SizedBox(
-                width: 320,
-                child: _MonthGrid(
-                  month: m,
-                  byDay: byDay,
-                  onPickDay: widget.onPickDay,
-                ),
+            _MonthHeader(
+              label: _monthLabel(_anchor),
+              style: theme.textTheme.titleSmall,
+              onPrevious: () => _shift(-1),
+              onNext: () => _shift(1),
+            ),
+            const SizedBox(height: AppSpace.xs),
+            _MonthGrid(
+              month: _anchor,
+              byDay: byDay,
+              onPickDay: widget.onPickDay,
+            ),
+            if (before != null || after != null) ...[
+              const SizedBox(height: AppSpace.sm),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: AppSpace.sm,
+                children: [
+                  if (before != null)
+                    _JumpChip(
+                      label: _elsewhereLabel(before),
+                      icon: Icons.chevron_left_rounded,
+                      iconFirst: true,
+                      onTap: () => setState(() => _anchor = before),
+                    ),
+                  if (after != null)
+                    _JumpChip(
+                      label: _elsewhereLabel(after),
+                      icon: Icons.chevron_right_rounded,
+                      iconFirst: false,
+                      onTap: () => setState(() => _anchor = after),
+                    ),
+                ],
               ),
+            ],
           ],
         ),
-      ],
+      ),
     );
   }
+
+  /// Seven columns of day cell, and the width the heading is centred over.
+  static const _monthWidth = 320.0;
 
   static const _monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December',
   ];
 
+  /// "2 days in Nov". Short on purpose: two of these have to sit side by side
+  /// under a 320px grid, and the year is nearly always the one on screen.
+  String _elsewhereLabel(DateTime month) {
+    final n = _daysIn(month);
+    final name = _monthNames[month.month - 1].substring(0, 3);
+    final year = month.year == _anchor.year ? '' : ' ${month.year}';
+    return '$n ${n == 1 ? 'day' : 'days'} in $name$year';
+  }
+
   static String _monthLabel(DateTime d) =>
       '${_monthNames[d.month - 1]} ${d.year}';
+}
+
+/// "Go to the month that has the rest of this exam on it."
+class _JumpChip extends StatelessWidget {
+  const _JumpChip({
+    required this.label,
+    required this.icon,
+    required this.iconFirst,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool iconFirst;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: Theme.of(context)
+          .textTheme
+          .labelSmall
+          ?.copyWith(color: AppColors.brandDark),
+    );
+
+    return ConstrainedBox(
+      // Half the grid, less the gap, so two of these fit on one line and
+      // neither can overflow whatever the month is called.
+      constraints: const BoxConstraints(maxWidth: 150),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (iconFirst) Icon(icon, size: 14, color: AppColors.brandDark),
+              Flexible(child: text),
+              if (!iconFirst) Icon(icon, size: 14, color: AppColors.brandDark),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The month's name, with the paging arrows either side of it.
+///
+/// Both arrow slots are always the same width, occupied or not, so the name
+/// lands in the middle of the grid underneath it.
+class _MonthHeader extends StatelessWidget {
+  const _MonthHeader({
+    required this.label,
+    required this.style,
+    this.onPrevious,
+    this.onNext,
+  });
+
+  final String label;
+  final TextStyle? style;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  static const _arrowSlot = 40.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: _arrowSlot,
+          child: onPrevious == null
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.chevron_left_rounded),
+                  tooltip: 'Previous month',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onPrevious,
+                ),
+        ),
+        Expanded(
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: style,
+          ),
+        ),
+        SizedBox(
+          width: _arrowSlot,
+          child: onNext == null
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.chevron_right_rounded),
+                  tooltip: 'Next month',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onNext,
+                ),
+        ),
+      ],
+    );
+  }
 }
 
 class _MonthGrid extends StatelessWidget {

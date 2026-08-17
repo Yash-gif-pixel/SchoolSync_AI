@@ -17,11 +17,21 @@ import httpx
 from dotenv import load_dotenv
 from supabase import create_client
 
+sys.path.insert(0, str(Path(__file__).parent))
+
+from sample_forms import ADMISSION_ANSWERS, admission_sample  # noqa: E402
+
 load_dotenv(Path(__file__).with_name(".env"))
 
 API = "http://127.0.0.1:8000"
-SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 PASSWORD = "Demo@12345"
+
+# The scan these assertions were written about: a strikethrough correction on
+# the date of birth and no address line, but no hard errors -- so it is
+# committable after review. It is a real child's paperwork and therefore
+# gitignored, so on any other machine sample_forms generates a stand-in that
+# reproduces both of those features. See sample_forms.py.
+ORIGINAL_SCAN = "WhatsApp Image 2026-08-07 at 10.36.14 AM.jpeg"
 
 sb_admin = create_client(
     os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -52,12 +62,8 @@ def token_for(email: str) -> str:
 
 
 def main() -> int:
-    # The Manjeet form: has a strikethrough correction and no address line,
-    # but no hard errors -- so it is committable after review.
-    sample = SAMPLES / "WhatsApp Image 2026-08-07 at 10.36.14 AM.jpeg"
-    if not sample.exists():
-        print(f"missing sample: {sample}")
-        return 1
+    name, image, mime = admission_sample(prefer=ORIGINAL_SCAN)
+    print(f"\nreading: {name}")
 
     admin_tok = token_for("admin@school.test")
     teacher_tok = token_for("teacher@school.test")
@@ -67,7 +73,7 @@ def main() -> int:
         r = c.post(
             f"{API}/documents/extract",
             headers={"Authorization": f"Bearer {admin_tok}"},
-            files={"file": (sample.name, sample.read_bytes(), "image/jpeg")},
+            files={"file": (name, image, mime)},
         )
     if not check("extract returns 201", r.status_code == 201, f"got {r.status_code} {r.text[:200]}"):
         return 1
@@ -84,16 +90,26 @@ def main() -> int:
           str(doc.get("confidence")))
 
     print("\n2. Extraction quality")
-    name = (fields["full_name"]["value"] or "").lower().replace(" ", "")
-    check("student name read", "manjeet" in name, fields["full_name"]["value"])
-    check("strikethrough resolved to 2014, not 1979",
-          (fields["date_of_birth"]["value"] or "").startswith("2014"),
+    # Expectations come from sample_forms rather than repeated literals, so the
+    # real scan and the generated stand-in are checked against one description
+    # of what is on the paper.
+    want = ADMISSION_ANSWERS
+    good_year = want["date_of_birth"][:4]
+    struck_year = want["struck_date_of_birth"][:4]
+
+    read_name = (fields["full_name"]["value"] or "").lower().replace(" ", "")
+    surname = want["full_name"].split()[0].lower()
+    check("student name read", surname in read_name, fields["full_name"]["value"])
+    check(f"strikethrough resolved to {good_year}, not {struck_year}",
+          (fields["date_of_birth"]["value"] or "").startswith(good_year),
           fields["date_of_birth"]["value"])
     check("absent address marked not-present, not guessed",
           fields["address"]["present_on_form"] is False and fields["address"]["value"] is None)
-    check("phone extracted", (fields["guardian_phone"]["value"] or "").startswith("98"),
+    check("phone extracted",
+          (fields["guardian_phone"]["value"] or "").startswith(want["guardian_phone"][:2]),
           fields["guardian_phone"]["value"])
-    check("class read as 8", fields["class_applying_for"]["value"] == "8",
+    check(f"class read as {want['class_applying_for']}",
+          fields["class_applying_for"]["value"] == want["class_applying_for"],
           fields["class_applying_for"]["value"])
 
     print("\n3. Validation")
@@ -105,7 +121,8 @@ def main() -> int:
 
     print("\n4. Authorisation")
     with httpx.Client(timeout=60) as c:
-        probe = {"values": {"full_name": "Hacker", "class_applying_for": "8"}}
+        probe = {"values": {"full_name": "Hacker",
+                            "class_applying_for": want["class_applying_for"]}}
         r_teacher = c.post(
             f"{API}/documents/{doc_id}/commit",
             headers={"Authorization": f"Bearer {teacher_tok}"},
@@ -121,15 +138,18 @@ def main() -> int:
             f"{API}/documents/{doc_id}/commit",
             headers={"Authorization": f"Bearer {admin_tok}"},
             json={"values": {
-                "full_name": "Manjeet Singh",     # reviewer corrected the spelling
-                "date_of_birth": "2014-03-10",
-                "gender": "M",
-                "class_applying_for": "8",
-                "guardian_name": "Jagdarshan Lal",
-                "guardian_phone": "9866421801",
-                "address": "Typed in by reviewer",  # was absent on the form
-                "previous_school": "Daffodil High School",
-                "admission_date": "2026-04-10",
+                # The reviewer's values, not the model's: a corrected spelling
+                # and an address typed in by hand, since the form has no line
+                # for one.
+                "full_name": want["full_name"],
+                "date_of_birth": want["date_of_birth"],
+                "gender": want["gender"],
+                "class_applying_for": want["class_applying_for"],
+                "guardian_name": want["guardian_name"],
+                "guardian_phone": want["guardian_phone"],
+                "address": "Typed in by reviewer",
+                "previous_school": want["previous_school"],
+                "admission_date": want["admission_date"],
             }},
         )
     if not check("commit returns 200", r.status_code == 200, f"{r.status_code} {r.text[:200]}"):
@@ -140,9 +160,11 @@ def main() -> int:
     student_id = student["id"]
     check("student created", bool(student_id))
     check("routed to the student target", body["kind"] == "student", body["kind"])
-    check("placed in a grade-8 class", body["class"]["name"].startswith("8"), body["class"]["name"])
+    check(f"placed in a grade-{want['class_applying_for']} class",
+          body["class"]["name"].startswith(want["class_applying_for"]),
+          body["class"]["name"])
     check("reviewer's correction was saved, not the model's value",
-          student["full_name"] == "Manjeet Singh", student["full_name"])
+          student["full_name"] == want["full_name"], student["full_name"])
     check("manually typed address saved",
           student["address"] == "Typed in by reviewer")
     check("provenance links back to the scan",
@@ -156,7 +178,8 @@ def main() -> int:
         r2 = c.post(
             f"{API}/documents/{doc_id}/commit",
             headers={"Authorization": f"Bearer {admin_tok}"},
-            json={"values": {"full_name": "Duplicate", "class_applying_for": "8"}},
+            json={"values": {"full_name": "Duplicate",
+                             "class_applying_for": want["class_applying_for"]}},
         )
     check("double-commit rejected (409)", r2.status_code == 409, str(r2.status_code))
 

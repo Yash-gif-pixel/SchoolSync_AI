@@ -34,6 +34,59 @@ class ConfirmPayload(BaseModel):
     substitute_teacher_id: str | None = None  # override the suggestion
 
 
+def _clash_confirming(teacher_id: str, day: str, entry_id: str,
+                      substitution_id: str) -> str | None:
+    """Why this teacher cannot take this period, or None if they can.
+
+    Confirming is the moment a suggestion becomes a commitment, so it is the
+    moment to check rather than trust. The suggestion may have been generated
+    days ago, before the teacher was given other cover or filed leave of their
+    own, and an admin may override the suggested name with anybody at all.
+    """
+    entry = (admin().table("timetable_entries")
+             .select("slot_id, version_id").eq("id", entry_id)
+             .maybe_single().execute())
+    if not entry or not entry.data:
+        return None  # nothing to check against; the confirm itself will fail
+    slot_id = entry.data["slot_id"]
+
+    # Already standing in for somebody else, same period, same day.
+    taken = (admin().table("substitutions")
+             .select("id, timetable_entries!inner(slot_id)")
+             .eq("substitute_teacher_id", teacher_id)
+             .eq("status", "confirmed")
+             .eq("date", day)
+             .eq("timetable_entries.slot_id", slot_id)
+             .neq("id", substitution_id)
+             .limit(1).execute().data)
+    if taken:
+        return ("They are already confirmed to cover another class in this "
+                "period. One free period cannot cover two absences.")
+
+    # Teaching their own class then. The timetable can be regenerated between
+    # a suggestion and its confirmation.
+    own = (admin().table("timetable_entries")
+           .select("id, teaching_assignments!inner(teacher_id)")
+           .eq("version_id", entry.data["version_id"])
+           .eq("slot_id", slot_id)
+           .eq("teaching_assignments.teacher_id", teacher_id)
+           .limit(1).execute().data)
+    if own:
+        return "They teach their own class in this period."
+
+    # Away themselves.
+    off = (admin().table("leave_requests").select("id")
+           .eq("teacher_id", teacher_id)
+           .eq("status", "approved")
+           .lte("from_date", day)
+           .gte("to_date", day)
+           .limit(1).execute().data)
+    if off:
+        return "They are on approved leave that day."
+
+    return None
+
+
 @router.get("/board")
 def action_board(
     upcoming_only: bool = True,
@@ -142,6 +195,16 @@ def confirm(
         or row["substitute_teacher_id"]
     if not chosen:
         raise HTTPException(422, "No substitute teacher to confirm.")
+
+    if row["status"] == "confirmed" and chosen == row["substitute_teacher_id"]:
+        raise HTTPException(409, "This cover is already confirmed.")
+
+    problem = _clash_confirming(chosen, row["date"], entry_id, substitution_id)
+    if problem:
+        who = (admin().table("profiles").select("full_name")
+               .eq("id", chosen).maybe_single().execute())
+        name = who.data["full_name"] if who and who.data else "That teacher"
+        raise HTTPException(409, f"{name} cannot cover this period. {problem}")
 
     # Confirming one candidate declines the rest for that period.
     siblings = (admin().table("substitutions").select("id")

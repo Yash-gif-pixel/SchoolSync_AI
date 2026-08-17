@@ -11,6 +11,18 @@ import 'config.dart';
 class TimetableRepository {
   const TimetableRepository();
 
+  /// Must match DEFAULT_TIME_LIMIT in api/app/services/timetable.py.
+  ///
+  /// Not a knob to be tuned down. The solver splits this budget, and feasible
+  /// packing of this school takes about 14.5s on its own; below roughly 35s
+  /// phase one times out, the relaxed fallback runs instead, and the school
+  /// gets a timetable with lessons missing from it. This used to default to
+  /// 20 and did exactly that.
+  static const defaultTimeLimit = 45.0;
+
+  /// How often to ask whether the solve has finished.
+  static const _pollEvery = Duration(seconds: 2);
+
   Map<String, String> get _auth {
     final token = Supabase.instance.client.auth.currentSession?.accessToken;
     final bearer = token == null ? null : 'Bearer $token';
@@ -19,23 +31,73 @@ class TimetableRepository {
 
   Uri _uri(String path) => Uri.parse('${AppConfig.apiBaseUrl}/timetable$path');
 
-  /// Generation runs a constraint solver, so it is slow by design.
+  /// Generation runs a constraint solver, so it is slow by design — and slow
+  /// in a way that a single HTTP request is a bad container for.
+  ///
+  /// Held open for 45 seconds, the request is at the mercy of every proxy
+  /// between the browser and the server, several of which cut at 30. The
+  /// solve completes and the user still sees a gateway error. So the solve is
+  /// started as a job and polled: each request is short, and the answer is
+  /// collected once the work is done.
   Future<SolveOutcome> generate({
-    double timeLimit = 20,
+    double timeLimit = defaultTimeLimit,
     bool optimiseGaps = true,
     String? label,
   }) async {
+    final body = jsonEncode({
+      'time_limit': timeLimit,
+      'optimise_gaps': optimiseGaps,
+      'label': label,
+      'activate': true,
+    });
+
+    final started = await http
+        .post(_uri('/jobs'), headers: _auth, body: body)
+        .timeout(const Duration(seconds: 90));
+
+    // A backend deployed before the job endpoints existed. The two halves of
+    // this app deploy separately, so the older path is kept as a fallback
+    // rather than assumed away.
+    if (started.statusCode == 404 || started.statusCode == 405) {
+      return _generateSynchronously(body, timeLimit);
+    }
+    _check(started);
+
+    final jobId =
+        (jsonDecode(started.body) as Map<String, dynamic>)['job_id'] as String;
+
+    // Generous: the budget itself, plus a cold start, plus the database
+    // writes that follow the solve.
+    final deadline =
+        DateTime.now().add(Duration(seconds: timeLimit.ceil() + 120));
+
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(_pollEvery);
+
+      final poll = await http
+          .get(_uri('/jobs/$jobId'), headers: _auth)
+          .timeout(const Duration(seconds: 90));
+      _check(poll);
+
+      final job = jsonDecode(poll.body) as Map<String, dynamic>;
+      switch (job['status'] as String?) {
+        case 'done':
+          return SolveOutcome.fromMap(job['result'] as Map<String, dynamic>);
+        case 'failed':
+          throw Exception(job['error'] ?? 'The solver failed.');
+      }
+    }
+
+    throw Exception(
+      'The solver is still running after ${timeLimit.ceil() + 120} seconds. '
+      'It has not been cancelled — check the version history in a moment.',
+    );
+  }
+
+  Future<SolveOutcome> _generateSynchronously(
+      String body, double timeLimit) async {
     final res = await http
-        .post(
-          _uri('/generate'),
-          headers: _auth,
-          body: jsonEncode({
-            'time_limit': timeLimit,
-            'optimise_gaps': optimiseGaps,
-            'label': label,
-            'activate': true,
-          }),
-        )
+        .post(_uri('/generate'), headers: _auth, body: body)
         .timeout(Duration(seconds: timeLimit.ceil() + 60));
     _check(res);
     return SolveOutcome.fromMap(jsonDecode(res.body) as Map<String, dynamic>);
@@ -114,6 +176,7 @@ class TimetableRepository {
         401 => 'Please sign in again.',
         403 => 'Only an admin can generate a timetable.',
         404 => 'No timetable has been published yet.',
+        409 => 'A timetable is already being generated. Wait for it to finish.',
         _ => 'Request failed (${res.statusCode}).',
       };
     }

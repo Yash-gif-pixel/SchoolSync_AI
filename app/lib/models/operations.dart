@@ -29,12 +29,17 @@ class RosterStudent {
     required this.fullName,
     required this.rollNo,
     required this.status,
+    this.photoUrl,
   });
 
   final String id;
   final String fullName;
   final int rollNo;
   AttendanceStatus status;
+
+  /// A signed, short-lived URL, or null when no photo has been uploaded.
+  /// Never a bucket path — the API signs it on the way out.
+  final String? photoUrl;
 
   String get initials {
     final parts = fullName.trim().split(RegExp(r'\s+'));
@@ -48,6 +53,7 @@ class RosterStudent {
         fullName: (m['full_name'] ?? '') as String,
         rollNo: (m['roll_no'] ?? 0) as int,
         status: AttendanceStatus.parse(m['status'] as String?),
+        photoUrl: m['photo_url'] as String?,
       );
 }
 

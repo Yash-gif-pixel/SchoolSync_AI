@@ -18,6 +18,14 @@ class Settings:
         self.supabase_service_key: str = self._require("SUPABASE_SERVICE_ROLE_KEY")
         self.gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
 
+        # Overrides the model fallback chain in services/document_ai.py.
+        # Google retires model tags on its own schedule, and a retired tag
+        # turns every OCR request into a wasted round trip; this makes fixing
+        # that a config change rather than a code change.
+        self.gemini_models: list[str] = [
+            m.strip() for m in os.getenv("GEMINI_MODELS", "").split(",") if m.strip()
+        ]
+
         # Flutter web dev server ports are assigned at random unless pinned;
         # we pin to 5000 in the run script so this list stays short.
         self.cors_origins: list[str] = [

@@ -1,12 +1,12 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../core/templates_repository.dart';
 import '../models/document_template.dart';
 import '../widgets/shell/app_shell.dart';
 import '../widgets/ui/primitives.dart';
-import 'template_editor_screen.dart';
 
 /// Manage the forms this school uses. Every school prints its own paperwork,
 /// so the field list is data, not code.
@@ -54,12 +54,15 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
     DocumentTemplate? template,
     TemplateProposal? proposal,
   }) async {
-    final saved = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => TemplateEditorScreen(template: template, proposal: proposal),
-      ),
-    );
-    if (saved == true) ref.invalidate(templatesProvider);
+    // An existing template is addressable by id. A proposal is not: it is an
+    // unsaved draft the model has just produced, so it travels in `extra`.
+    final message = template != null
+        ? await context.push<String>('/templates/${template.id}/edit')
+        : await context.push<String>('/templates/new', extra: proposal);
+
+    if (!mounted) return;
+    ref.invalidate(templatesProvider);
+    if (message != null) _snack(message);
   }
 
   void _snack(String msg, {bool error = false}) {

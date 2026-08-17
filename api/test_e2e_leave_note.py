@@ -18,11 +18,14 @@ import httpx
 from dotenv import load_dotenv
 from supabase import create_client
 
+sys.path.insert(0, str(Path(__file__).parent))
+
+from sample_forms import leave_note_png as make_note  # noqa: E402
+
 load_dotenv(Path(__file__).with_name(".env"))
 
 API = "http://127.0.0.1:8000"
 PASSWORD = "Demo@12345"
-SCRATCH = Path(__file__).resolve().parent.parent / "samples" / "_generated"
 
 sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
 
@@ -50,46 +53,6 @@ def token_for(email: str) -> str:
     )
     r.raise_for_status()
     return r.json()["access_token"]
-
-
-def make_note(teacher_name: str, start: dt.date, end: dt.date, reason: str) -> bytes:
-    """Render a plausible medical note as a PNG.
-
-    Typed rather than handwritten — this test is about the pipeline, not about
-    re-testing handwriting recognition, which the admission-form samples
-    already cover.
-    """
-    from PIL import Image, ImageDraw
-
-    img = Image.new("RGB", (900, 620), "white")
-    d = ImageDraw.Draw(img)
-    d.rectangle([30, 30, 870, 590], outline="black", width=2)
-
-    lines = [
-        "CITY CLINIC",
-        "12 MG Road, Secunderabad",
-        "",
-        "MEDICAL CERTIFICATE",
-        "",
-        f"Teacher Name : {teacher_name}",
-        f"Leave From   : {start.strftime('%d/%m/%Y')}",
-        f"Leave To     : {end.strftime('%d/%m/%Y')}",
-        f"Reason       : {reason}",
-        "",
-        "The above named is advised rest for the",
-        "period stated.",
-        "",
-        "Signed: Dr A. Kumar",
-    ]
-    y = 70
-    for line in lines:
-        d.text((70, y), line, fill="black")
-        y += 34
-
-    SCRATCH.mkdir(parents=True, exist_ok=True)
-    path = SCRATCH / "leave_note.png"
-    img.save(path)
-    return path.read_bytes()
 
 
 def next_weekday(offset: int = 1) -> dt.date:

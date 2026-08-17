@@ -1,7 +1,14 @@
+import 'dart:convert';
+
+import 'package:characters/characters.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' show MediaType;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'api_client.dart';
 import 'auth_controller.dart';
+import 'config.dart';
 
 class Student {
   const Student({
@@ -13,6 +20,7 @@ class Student {
     this.section,
     this.guardianName,
     this.guardianPhone,
+    this.photoUrl,
   });
 
   final String id;
@@ -24,6 +32,18 @@ class Student {
   final String? guardianName;
   final String? guardianPhone;
 
+  /// A signed, short-lived URL, or null when no photo has been uploaded.
+  final String? photoUrl;
+
+  /// Grapheme-aware, so an initial is never half a Devanagari cluster.
+  String get initials {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty || parts.first.isEmpty) return '?';
+    if (parts.length == 1) return parts.first.characters.first.toUpperCase();
+    return (parts.first.characters.first + parts.last.characters.first)
+        .toUpperCase();
+  }
+
   factory Student.fromJson(Map<String, dynamic> j) => Student(
         id: j['id'] as String,
         name: (j['full_name'] as String?) ?? 'Unnamed',
@@ -33,6 +53,7 @@ class Student {
         section: j['section'] as String?,
         guardianName: j['guardian_name'] as String?,
         guardianPhone: j['guardian_phone'] as String?,
+        photoUrl: j['photo_url'] as String?,
       );
 }
 
@@ -163,6 +184,45 @@ class DirectoryRepository {
         .map((e) => StaffMember.fromJson(e as Map<String, dynamic>))
         .toList();
   }
+
+  // ------------------------------------------------------- photographs
+  /// Upload a portrait. The server squares it, turns it upright and strips
+  /// the EXIF — including, on a phone photo, where it was taken.
+  ///
+  /// Multipart, so it does not go through ApiClient, which speaks JSON.
+  Future<String?> setStudentPhoto({
+    required String studentId,
+    required String filename,
+    required List<int> bytes,
+    required String mimeType,
+  }) async {
+    final token = Supabase.instance.client.auth.currentSession?.accessToken;
+    final parts = mimeType.split('/');
+
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('${AppConfig.apiBaseUrl}/directory/students/$studentId/photo'),
+    )
+      ..headers.addAll({if (token != null) 'Authorization': 'Bearer $token'})
+      ..files.add(http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: filename,
+        contentType: parts.length == 2 ? MediaType(parts[0], parts[1]) : null,
+      ));
+
+    final res = await http.Response.fromStream(
+      await req.send().timeout(const Duration(seconds: 90)),
+    );
+    if (res.statusCode >= 400) {
+      throw ApiException(res.statusCode, res.body);
+    }
+    return (jsonDecode(res.body) as Map<String, dynamic>)['photo_url']
+        as String?;
+  }
+
+  Future<void> clearStudentPhoto(String studentId) =>
+      _api.delete('/directory/students/$studentId/photo');
 }
 
 final directoryRepositoryProvider = Provider<DirectoryRepository>(
